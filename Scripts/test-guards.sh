@@ -48,10 +48,16 @@ expect_accept() {
     fi
 }
 
-# Snapshot the tree state up front. The teardown check compares against this rather
-# than against "clean", so pre-existing uncommitted work does not read as a leak from
-# this script — we only care about what the script itself left behind.
-BASELINE_STATUS="$(git status --porcelain 2>/dev/null)"
+# Snapshot the tree state up front. The teardown check compares against this rather than
+# against "clean", so pre-existing uncommitted work does not read as a leak from this
+# script — we only care about what this script itself changed.
+#
+# Stored in a FILE, not a variable: `printf '%s\n' "$empty"` emits one blank line whereas
+# `git status --porcelain` on a clean tree emits nothing, so a variable round-trip made
+# every clean-tree run report a phantom deleted line. Two identical commands, two files.
+BASELINE_FILE="$(mktemp)"
+TMP_PATHS+=("$BASELINE_FILE")
+git status --porcelain > "$BASELINE_FILE" 2>/dev/null
 
 echo "test-guards: planting violations"
 echo ""
@@ -151,7 +157,10 @@ echo ""
 
 # --- Confirm the tree really was restored. ---
 echo "Teardown"
-DRIFT="$(diff <(printf '%s\n' "$BASELINE_STATUS") <(git status --porcelain 2>/dev/null) || true)"
+CURRENT_FILE="$(mktemp)"
+TMP_PATHS+=("$CURRENT_FILE")
+git status --porcelain > "$CURRENT_FILE" 2>/dev/null
+DRIFT="$(diff "$BASELINE_FILE" "$CURRENT_FILE" || true)"
 if [ -n "$DRIFT" ]; then
     echo "  ✗ this script changed the working tree:"
     printf '%s\n' "$DRIFT" | sed 's/^/      /'
