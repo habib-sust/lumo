@@ -2,17 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Family Controls.
-
-	     Same key for Development and Distribution; the difference is which
-	     provisioning profile Apple will issue. Development is self-serve (Xcode
-	     auto-enables it on the App ID). Distribution requires an Apple review
-	     request per bundle ID and gates TestFlight as well as the App Store. -->
 	<key>com.apple.developer.family-controls</key>
 	<true/>
-
-	<!-- App Group: the only channel through which this app and its three
-	     extensions share shield state. Must be identical in all four targets. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.habib.Lumo</string>
