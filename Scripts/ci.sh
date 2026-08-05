@@ -51,9 +51,17 @@ if [ -n "${DD:-}" ] && [ -d "$DD" ]; then
         case "$(basename "$appex")" in
             LumoMonitorExtension.appex)
                 step "link graph: monitor" ./Scripts/assert-link-graph.sh "$appex" monitor
-                step "size: monitor"       ./Scripts/assert-binary-size.sh "$appex" 1258291
+                # Binary size is drift detection only; the link graph above is the real
+                # protection for the 6 MB ceiling. Authoritative resident figure comes from
+                # Instruments on device (T-092): budget 3 MB, alarm 4.5 MB.
+                step "size: monitor" ./Scripts/assert-binary-size.sh "$appex" 1258291
                 ;;
-            *) step "link graph: $(basename "$appex")" ./Scripts/assert-link-graph.sh "$appex" shield ;;
+            LumoShieldConfigExtension.appex)
+                step "link graph: shield config" ./Scripts/assert-link-graph.sh "$appex" shieldconfig
+                ;;
+            LumoShieldActionExtension.appex)
+                step "link graph: shield action" ./Scripts/assert-link-graph.sh "$appex" shieldaction
+                ;;
         esac
     done
 fi

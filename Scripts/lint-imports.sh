@@ -11,7 +11,12 @@
 # Run from the repo root. Exits non-zero on any violation.
 
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 2
+
+# Root is overridable so the self-test can point this at a throwaway sandbox instead of
+# planting fake targets inside the real source tree. It used to plant them in place and
+# `rm -rf` the directory afterwards — which was harmless while those directories did not
+# exist, and deleted real source the moment they did.
+cd "${LUMO_LINT_ROOT:-$(dirname "$0")/..}" || exit 2
 
 FAIL=0
 
@@ -56,6 +61,31 @@ echo "lint-imports: checking extension import allowlists"
 check_target "LumoMonitorExtension"      "$BASE_ALLOWED"        "LumoMonitorExtension (6 MB ceiling)"
 check_target "LumoShieldConfigExtension" "$BASE_ALLOWED|UIKit"  "LumoShieldConfigExtension (UIKit permitted)"
 check_target "LumoShieldActionExtension" "$BASE_ALLOWED"        "LumoShieldActionExtension"
+
+# LumoShieldKit must not import FamilyControls.
+#
+# FamilyControls links SwiftUI, which links UIKit. The monitor extension links this package,
+# so a FamilyControls import here hands it a transitive UIKit link against its 6 MB ceiling.
+# This regressed once already and was caught only by the link-graph gate — the monitor was
+# linking UIKit with no UIKit import in its own sources. Gate it at the import line too,
+# because that failure is silent and total in production.
+if [ -d Packages/LumoShieldKit/Sources ]; then
+    leaks=()
+    while IFS= read -r entry; do leaks+=("$entry"); done < <(
+        grep -rnE '^[[:space:]]*import[[:space:]]+(FamilyControls|SwiftUI|UIKit|SwiftData)\b' \
+            Packages/LumoShieldKit/Sources 2>/dev/null || true
+    )
+    if [ ${#leaks[@]} -gt 0 ]; then
+        echo ""
+        echo "✗ LumoShieldKit imports a UI-linking framework:"
+        printf '    %s\n' "${leaks[@]}"
+        echo "  FamilyControls -> SwiftUI -> UIKit, inherited by the 6 MB monitor extension."
+        echo "  Put FamilyControls-dependent code in the app target instead."
+        FAIL=1
+    else
+        echo "  ✓ LumoShieldKit is free of UI-linking frameworks"
+    fi
+fi
 
 # LumoCore must stay portable — it is the reason ~90% of the risky logic can be
 # tested on macOS at all. A single Screen Time or UI import here ends that.

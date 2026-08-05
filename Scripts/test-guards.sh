@@ -101,49 +101,64 @@ expect_accept ./Scripts/lint-forbidden.sh "comments mentioning banned patterns a
 rm -f Lumo/__guardtest_comment.swift
 echo ""
 
-# --- lint-imports: disallowed import in the monitor extension ---
+# --- lint-imports: extension allowlists ---
+#
+# These run against a throwaway sandbox via LUMO_LINT_ROOT. They used to plant fake targets
+# directly in the source tree and `rm -rf` the directory afterwards, which silently deleted
+# real extension sources once those directories existed. Never plant inside real targets.
 echo "lint-imports"
-plant LumoMonitorExtension/__guardtest_import.swift \
-'import Foundation
+SANDBOX="$(mktemp -d)"
+TMP_PATHS+=("$SANDBOX")
+
+sandbox_reset() { rm -rf "$SANDBOX"; mkdir -p "$SANDBOX"; }
+
+sandbox_plant() {
+    mkdir -p "$SANDBOX/$(dirname "$1")"
+    printf '%s\n' "$2" > "$SANDBOX/$1"
+}
+
+sandbox_reset
+sandbox_plant LumoMonitorExtension/x.swift 'import Foundation
 import SwiftUI
 final class X {}'
-expect_reject ./Scripts/lint-imports.sh "SwiftUI in LumoMonitorExtension"
-rm -rf LumoMonitorExtension
+LUMO_LINT_ROOT="$SANDBOX" expect_reject ./Scripts/lint-imports.sh "SwiftUI in LumoMonitorExtension"
 
-# --- UIKit is denied to the monitor, permitted to shield-config ---
-plant LumoMonitorExtension/__guardtest_uikit.swift \
-'import Foundation
+sandbox_reset
+sandbox_plant LumoMonitorExtension/x.swift 'import Foundation
 import UIKit
 final class X {}'
-expect_reject ./Scripts/lint-imports.sh "UIKit in LumoMonitorExtension (denied)"
-rm -rf LumoMonitorExtension
+LUMO_LINT_ROOT="$SANDBOX" expect_reject ./Scripts/lint-imports.sh "UIKit in LumoMonitorExtension (denied)"
 
-plant LumoShieldConfigExtension/__guardtest_uikit.swift \
-'import Foundation
+sandbox_reset
+sandbox_plant LumoShieldConfigExtension/x.swift 'import Foundation
 import UIKit
 import ManagedSettingsUI
 final class X {}'
-expect_accept ./Scripts/lint-imports.sh "UIKit in LumoShieldConfigExtension (permitted)"
-rm -rf LumoShieldConfigExtension
+LUMO_LINT_ROOT="$SANDBOX" expect_accept ./Scripts/lint-imports.sh "UIKit in LumoShieldConfigExtension (permitted)"
 
-# --- LumoCore losing portability ---
-plant Packages/LumoCore/Sources/LumoCore/__guardtest_ms.swift \
-'import Foundation
+sandbox_reset
+sandbox_plant Packages/LumoShieldKit/Sources/x.swift 'import Foundation
+import FamilyControls
+struct X {}'
+LUMO_LINT_ROOT="$SANDBOX" expect_reject ./Scripts/lint-imports.sh "FamilyControls in LumoShieldKit (UIKit leak)"
+
+sandbox_reset
+sandbox_plant Packages/LumoCore/Sources/x.swift 'import Foundation
 import ManagedSettings
 struct X {}'
-expect_reject ./Scripts/lint-imports.sh "ManagedSettings import in LumoCore"
-rm -f Packages/LumoCore/Sources/LumoCore/__guardtest_ms.swift
+LUMO_LINT_ROOT="$SANDBOX" expect_reject ./Scripts/lint-imports.sh "ManagedSettings import in LumoCore"
 echo ""
 
 # --- Confirm the tree really was restored. ---
 echo "Teardown"
-LEAKED="$(diff <(printf '%s\n' "$BASELINE_STATUS") <(git status --porcelain 2>/dev/null) | grep '^>' || true)"
-if [ -n "$LEAKED" ]; then
-    echo "  ✗ this script leaked files into the working tree:"
-    printf '%s\n' "$LEAKED" | sed 's/^> /      /'
+DRIFT="$(diff <(printf '%s\n' "$BASELINE_STATUS") <(git status --porcelain 2>/dev/null) || true)"
+if [ -n "$DRIFT" ]; then
+    echo "  ✗ this script changed the working tree:"
+    printf '%s\n' "$DRIFT" | sed 's/^/      /'
+    echo "    ('>' = left behind, '<' = removed. Either is a bug in this script.)"
     FAIL=$((FAIL + 1))
 else
-    echo "  ✓ no files leaked (tree matches pre-run state)"
+    echo "  ✓ tree byte-identical to pre-run state"
     PASS=$((PASS + 1))
 fi
 
