@@ -196,10 +196,12 @@ public struct SharedState: Codable, Sendable, Equatable {
 
 extension SharedState {
 
-    /// The live window for a bucket, if any. A window is live until its wall clock passes,
-    /// regardless of what the usage threshold claims.
+    /// The live window for a bucket, if any.
+    ///
+    /// Delegates to `UnlockWindow.isLive` so liveness has exactly one definition — see the
+    /// note there about the two paths that previously disagreed.
     public func liveWindow(for bucket: BucketID, now: Date) -> UnlockWindow? {
-        windows.first { $0.bucket == bucket && $0.endsAt > now && !$0.usageExhausted }
+        windows.first { $0.bucket == bucket && $0.isLive(now: now) }
     }
 
     public func hasLiveWindow(for bucket: BucketID, now: Date) -> Bool {
@@ -208,7 +210,7 @@ extension SharedState {
 
     /// Buckets that should currently be open.
     public func openBuckets(now: Date) -> Set<BucketID> {
-        Set(windows.filter { $0.endsAt > now && !$0.usageExhausted }.map(\.bucket))
+        Set(windows.filter { $0.isLive(now: now) }.map(\.bucket))
     }
 
     /// Journal entries that still need work — either finishing or rolling back.

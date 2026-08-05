@@ -55,6 +55,34 @@ public struct UnlockWindow: Codable, Sendable, Equatable {
         self.intentID = intentID
     }
 
+    /// A usage-exhausted signal is ignored until the window has been live this long.
+    ///
+    /// `eventDidReachThreshold` is reported firing at +0 seconds on current iOS even with
+    /// `includesPastActivity: false`, so without a floor a user pays and the window shuts
+    /// instantly.
+    public static let thresholdHonorFloor: TimeInterval = 120
+
+    /// The single definition of "is this window still open".
+    ///
+    /// It lives here, on the window, because it was previously duplicated: the reconciler's
+    /// expiry pass applied the sanity floor while `openBuckets` treated `usageExhausted` as
+    /// immediately closing. The floor therefore stopped the window being *deleted* but the
+    /// shield-delta pass re-shielded it anyway — the phantom threshold still stole the paid
+    /// window. Two code paths, one rule: keep it that way.
+    public func isLive(now: Date) -> Bool {
+        guard endsAt > now else { return false }
+        if usageExhausted, now.timeIntervalSince(startedAt) >= Self.thresholdHonorFloor {
+            return false
+        }
+        return true
+    }
+
+    /// True when exhaustion was reported implausibly early — the known iOS regression rather
+    /// than a real signal.
+    public func hasPhantomThreshold(now: Date) -> Bool {
+        usageExhausted && now.timeIntervalSince(startedAt) < Self.thresholdHonorFloor
+    }
+
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         bucket = try c.decodeIfPresent(BucketID.self, forKey: .bucket) ?? BucketID(slot: 0)
