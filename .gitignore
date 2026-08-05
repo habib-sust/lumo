@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+
+# Xcode — user-specific state
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+
+# Xcode — build products
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Packages/*/.build/
+
+# Package.resolved is intentionally NOT ignored — it pins dependency versions.
+
+# Provisioning / signing — never commit these
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+
+# Instruments
+*.trace
+
+# Fastlane / CI artifacts
+fastlane/report.xml
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Coverage
+*.profraw
+*.profdata
+coverage/
