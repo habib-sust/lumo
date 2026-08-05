@@ -7,9 +7,22 @@
 #if os(iOS)
 
 import DeviceActivity
-import FamilyControls
 import Foundation
 import ManagedSettings
+
+// NOTE: FamilyControls is deliberately NOT imported here, and must never be.
+//
+// FamilyControls links SwiftUI (it ships FamilyActivityPicker), which links UIKit. Because
+// the DeviceActivityMonitor extension links this package, importing FamilyControls here
+// gives that extension a transitive UIKit link — against a 6 MB high-watermark it dies past,
+// silently, taking the shield with it.
+//
+// This was caught by the link-graph gate rather than by reading: the monitor extension was
+// linking UIKit with no UIKit import anywhere in its own sources. `lint-imports.sh` now
+// blocks the regression.
+//
+// The FamilyActivitySelection Sendable conformance therefore lives in the app target, which
+// is the only place that presents a picker anyway.
 
 // Apple ships ZERO Sendable conformances in ManagedSettings and DeviceActivity. Verified
 // against the iOS 26.5 SDK:
@@ -38,7 +51,6 @@ extension DeviceActivityEvent: @retroactive @unchecked Sendable {}
 extension DeviceActivityEvent.Name: @retroactive @unchecked Sendable {}
 extension DeviceActivitySchedule: @retroactive @unchecked Sendable {}
 
-extension FamilyActivitySelection: @retroactive @unchecked Sendable {}
 
 // DELIBERATELY ABSENT: ManagedSettingsStore.
 //
@@ -71,7 +83,6 @@ private func shimSelfTest() {
     requiresSendable(DeviceActivityEvent.self)
     requiresSendable(DeviceActivityEvent.Name.self)
     requiresSendable(DeviceActivitySchedule.self)
-    requiresSendable(FamilyActivitySelection.self)
 }
 
 #endif
