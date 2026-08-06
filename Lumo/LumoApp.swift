@@ -23,7 +23,12 @@ struct LumoApp: App {
     //
     init() {
         // Synchronous, and before anything else. No await, no Task.
-        LumoStack.reconcileNow(.app)
+        //
+        // startUp() migrates the schema if needed and then reconciles, both inside the same
+        // cross-process lock and in that order — the reconciler must never see a half-converted
+        // payload. Only the app may migrate; the extensions read the version and refuse to write
+        // on a mismatch.
+        LumoStack.startUp()
     }
 
     @Environment(\.scenePhase) private var scenePhase

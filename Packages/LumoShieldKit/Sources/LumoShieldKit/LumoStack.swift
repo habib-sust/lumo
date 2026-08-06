@@ -91,6 +91,38 @@ public enum LumoStack {
     public static func reconcileNow(_ process: ProcessTag) -> ShieldReconciler.Outcome? {
         reconciler(for: process)?.reconcile(by: process)
     }
+
+    /// App launch: migrate if needed, then reconcile. **App only.**
+    ///
+    /// Extensions must never call this. Two processes migrating concurrently, or an extension
+    /// writing a shape the app has not yet converted, would corrupt the wallet silently — which
+    /// is why the extensions only ever read the version and refuse to write on a mismatch.
+    ///
+    /// The migration runs inside the same lock as the reconcile and strictly before it, so the
+    /// reconciler never sees a half-converted payload.
+    @discardableResult
+    public static func startUp() -> ShieldReconciler.Outcome? {
+        let diag = diagnostics(for: .app)
+
+        lock(for: .app).withLock {
+            guard let defaults else { return }
+            do {
+                if let outcome = try LumoMigrator.migrateIfNeeded(defaults: defaults) {
+                    diag.record(
+                        "migration.applied",
+                        detail: "v\(outcome.fromVersion)->v\(outcome.toVersion) in \(outcome.stepsApplied) step(s)"
+                    )
+                }
+            } catch {
+                // Refuse to operate on a layout we do not understand. The reconciler's own
+                // schema gate will then shield everything rather than guess — which is the safe
+                // direction, and the wallet is left intact for a later build to read.
+                diag.record("migration.refused", detail: "\(error)")
+            }
+        }
+
+        return reconcileNow(.app)
+    }
 }
 
 #endif
