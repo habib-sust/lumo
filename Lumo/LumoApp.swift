@@ -10,6 +10,12 @@ import SwiftUI
 @main
 struct LumoApp: App {
 
+    @State private var authorization = AuthorizationService()
+    @State private var selection = SelectionService()
+    @AppStorage("lumo.hasCompletedSetup") private var hasCompletedSetup = false
+
+    @Environment(\.scenePhase) private var scenePhase
+
     // MARK: - Layer 4: synchronous reconcile before anything else
     //
     // Shield state is owned by four processes (this app, the DeviceActivityMonitor
@@ -20,10 +26,7 @@ struct LumoApp: App {
     // This must stay synchronous. An `await` here is a suspension point the user can
     // exploit by backgrounding mid-launch, which leaves shields half-applied. There is
     // a merge-blocking CI grep for `async` inside Packages/ for exactly this reason.
-    //
     init() {
-        // Synchronous, and before anything else. No await, no Task.
-        //
         // startUp() migrates the schema if needed and then reconciles, both inside the same
         // cross-process lock and in that order — the reconciler must never see a half-converted
         // payload. Only the app may migrate; the extensions read the version and refuse to write
@@ -31,39 +34,57 @@ struct LumoApp: App {
         LumoStack.startUp()
     }
 
-    @Environment(\.scenePhase) private var scenePhase
-
     var body: some Scene {
         WindowGroup {
-            PlaceholderView()
-                .onChange(of: scenePhase) { _, phase in
-                    // Authorization status can change without Lumo running, and a window can
-                    // expire while it is suspended — so state is recomputed on every activation
-                    // rather than trusted from last launch.
-                    if phase == .active { LumoStack.reconcileNow(.app) }
+            Group {
+                if hasCompletedSetup {
+                    HomePlaceholder()
+                } else {
+                    OnboardingFlow { hasCompletedSetup = true }
                 }
+            }
+            .environment(authorization)
+            .environment(selection)
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                // Authorization can be revoked in Settings without Lumo running, which unshields
+                // everything at once — so it is re-read on every activation rather than trusted
+                // from launch. Windows can also expire while the app is suspended.
+                LumoStack.reconcileNow(.app)
+                authorization.refresh()
+            }
         }
     }
 }
 
-/// Temporary launch surface for Phase 0. Replaced by the hearth in Phase 4 (T-082).
-private struct PlaceholderView: View {
+/// Stands in for the hearth until Phase 4 (T-082).
+private struct HomePlaceholder: View {
+    @Environment(AuthorizationService.self) private var authorization
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "flame.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.orange)
-            Text("Lumo")
-                .font(.largeTitle.weight(.semibold))
-            Text("Light comes first.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.ignoresSafeArea())
-    }
-}
+        ZStack {
+            Color.lumoInk.ignoresSafeArea()
+            VStack(spacing: 14) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(Color.lumoEmber)
+                Text("Lumo")
+                    .font(.largeTitle.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("Light comes first.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.lumoHaze)
 
-#Preview {
-    PlaceholderView()
+                if let guidance = authorization.guidance {
+                    // Surfaced on the home screen too, not only during setup: if access is revoked
+                    // later, every locked app silently reopens, and the user deserves to know why
+                    // rather than assume Lumo is broken.
+                    Text(guidance.title)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Color.lumoEmber)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
 }
