@@ -89,6 +89,11 @@ public struct SharedState: Codable, Sendable, Equatable {
     public var journal: [SpendIntent]
 
     public var mirror: ShieldMirror
+
+    /// Emergency-unlock usage. Counted to escalate friction and feed harm telemetry, never to
+    /// deny access.
+    public var emergency: EmergencyLog
+
     public var flags: Flags
     public var lastReconcileAt: Date?
     public var lastReconcileBy: ProcessTag?
@@ -149,6 +154,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         windows: [UnlockWindow] = [],
         journal: [SpendIntent] = [],
         mirror: ShieldMirror = .empty,
+        emergency: EmergencyLog = .empty,
         flags: Flags = [],
         lastReconcileAt: Date? = nil,
         lastReconcileBy: ProcessTag? = nil,
@@ -160,6 +166,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         self.windows = windows
         self.journal = journal
         self.mirror = mirror
+        self.emergency = emergency
         self.flags = flags
         self.lastReconcileAt = lastReconcileAt
         self.lastReconcileBy = lastReconcileBy
@@ -185,6 +192,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         windows = try c.decodeIfPresent([UnlockWindow].self, forKey: .windows) ?? []
         journal = try c.decodeIfPresent([SpendIntent].self, forKey: .journal) ?? []
         mirror = try c.decodeIfPresent(ShieldMirror.self, forKey: .mirror) ?? .empty
+        emergency = try c.decodeIfPresent(EmergencyLog.self, forKey: .emergency) ?? .empty
         flags = try c.decodeIfPresent(Flags.self, forKey: .flags) ?? []
         lastReconcileAt = try c.decodeIfPresent(Date.self, forKey: .lastReconcileAt)
         lastReconcileBy = try c.decodeIfPresent(ProcessTag.self, forKey: .lastReconcileBy)

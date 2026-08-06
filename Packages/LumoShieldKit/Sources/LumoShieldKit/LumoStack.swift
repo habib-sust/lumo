@@ -92,6 +92,23 @@ public enum LumoStack {
         reconciler(for: process)?.reconcile(by: process)
     }
 
+    /// The free, always-available unlock and the teardown path.
+    ///
+    /// Returns `nil` only when the App Group is unavailable — in which case there are no shields
+    /// to release either, so there is nothing the user is trapped behind.
+    public static func emergencyUnlock(for process: ProcessTag) -> EmergencyUnlock? {
+        guard let store = stateStore(for: process) else { return nil }
+        let diag = diagnostics(for: process)
+        return EmergencyUnlock(
+            state: store,
+            shields: LiveShieldStore(diagnostics: diag),
+            scheduler: LiveActivityScheduler(diagnostics: diag),
+            lock: lock(for: process),
+            clock: SystemNow(),
+            diagnostics: diag
+        )
+    }
+
     /// App launch: migrate if needed, then reconcile. **App only.**
     ///
     /// Extensions must never call this. Two processes migrating concurrently, or an extension

@@ -60,6 +60,7 @@ struct LumoApp: App {
 /// Stands in for the hearth until Phase 4 (T-082).
 private struct HomePlaceholder: View {
     @Environment(AuthorizationService.self) private var authorization
+    @State private var isShowingSettings = false
 
     var body: some View {
         ZStack {
@@ -84,7 +85,17 @@ private struct HomePlaceholder: View {
                         .foregroundStyle(Color.lumoEmber)
                         .padding(.top, 8)
                 }
+
+                // Reachable from the first screen, not buried. The escape hatch is worthless if
+                // a frustrated user cannot find it.
+                Button("Settings") { isShowingSettings = true }
+                    .font(.callout)
+                    .foregroundStyle(Color.lumoHaze)
+                    .padding(.top, 24)
             }
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView()
         }
     }
 }
