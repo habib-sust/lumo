@@ -1,5 +1,6 @@
 import DeviceActivity
 import LumoCore
+import LumoShieldKit
 import os
 
 /// The DeviceActivityMonitor extension entry point.
@@ -75,9 +76,15 @@ final class LumoDeviceActivityMonitor: DeviceActivityMonitor {
     }
 
     private func reconcile(_ trigger: Trigger) {
-        // TODO(T-050/T-029): ShieldReconciler.reconcile(reason: .monitor(trigger))
-        // Deliberately synchronous when it lands — no await, no Task. The extension can be
-        // suspended or killed at any moment, so the work has to complete inline.
-        Self.log.info("trigger=\(trigger.rawValue, privacy: .public) schema=\(SchemaVersion.current, privacy: .public)")
+        // Synchronous, with no Task and no await: this extension can be suspended or killed at
+        // any moment, so the work has to complete inline or not at all.
+        //
+        // Note the trigger is logged but never acted on. Every callback means the same thing —
+        // "recompute from persisted state" — which is what makes phantom thresholds, spurious
+        // intervalDidEnd and duplicate deliveries harmless.
+        let outcome = LumoStack.reconcileNow(.monitor)
+        Self.log.info(
+            "trigger=\(trigger.rawValue, privacy: .public) shielded=\(outcome?.shielded.count ?? -1) expired=\(outcome?.expiredWindows ?? -1)"
+        )
     }
 }

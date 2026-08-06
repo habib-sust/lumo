@@ -3,6 +3,8 @@
 //  Lumo
 //
 
+import LumoCore
+import LumoShieldKit
 import SwiftUI
 
 @main
@@ -19,15 +21,22 @@ struct LumoApp: App {
     // exploit by backgrounding mid-launch, which leaves shields half-applied. There is
     // a merge-blocking CI grep for `async` inside Packages/ for exactly this reason.
     //
-    // TODO(T-029/T-056): call ShieldReconciler.reconcile(reason: .appLaunch) here once
-    // LumoCore lands, then create the ModelContainer.
     init() {
-        // Intentionally empty for now — see above.
+        // Synchronous, and before anything else. No await, no Task.
+        LumoStack.reconcileNow(.app)
     }
+
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             PlaceholderView()
+                .onChange(of: scenePhase) { _, phase in
+                    // Authorization status can change without Lumo running, and a window can
+                    // expire while it is suspended — so state is recomputed on every activation
+                    // rather than trusted from last launch.
+                    if phase == .active { LumoStack.reconcileNow(.app) }
+                }
         }
     }
 }

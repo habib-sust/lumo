@@ -1,4 +1,5 @@
 import LumoCore
+import LumoShieldKit
 import ManagedSettings
 import ManagedSettingsUI
 import UIKit
@@ -24,9 +25,10 @@ import UIKit
 final class LumoShieldConfiguration: ShieldConfigurationDataSource {
 
     override func configuration(shielding application: Application) -> ShieldConfiguration {
-        // TODO(T-051): read the wallet and tier ladder via ShieldReconciler.observe(),
-        // and on iOS 26.4+ attach secondaryButtonSubmenuItems for the price tiers.
-        Self.placeholder
+        // Read-only: `observe` holds no ShieldStoring, so this cannot mutate shield state from
+        // inside the "what should I render?" callback even by accident.
+        // TODO(T-051 completion): on iOS 26.4+ attach secondaryButtonSubmenuItems for the tiers.
+        Self.shield(for: LumoStack.stateStore(for: .shieldConfig))
     }
 
     override func configuration(
@@ -47,6 +49,36 @@ final class LumoShieldConfiguration: ShieldConfigurationDataSource {
         Self.placeholder
     }
 
+    /// Renders the current wallet if it is readable, and a truthful generic shield otherwise.
+    private static func shield(for store: DefaultsStateStore?) -> ShieldConfiguration {
+        guard let store else { return placeholder }
+        let observation = ShieldReconciler.observe(state: store)
+        guard !observation.isSafeMode else { return placeholder }
+        return configuration(coins: observation.wallet.total)
+    }
+
+    private static func configuration(coins: Int) -> ShieldConfiguration {
+        var base = placeholder
+        base = ShieldConfiguration(
+            backgroundBlurStyle: .systemUltraThinMaterialDark,
+            backgroundColor: ink,
+            icon: nil,
+            title: .init(text: "Light comes first", color: .white),
+            subtitle: .init(
+                text: coins > 0
+                    ? "You have \(coins) coins. Open Lumo to spend them."
+                    : "Do something first. Open Lumo to see how to earn.",
+                color: UIColor.white.withAlphaComponent(0.75)
+            ),
+            primaryButtonLabel: .init(text: "Not now", color: ink),
+            primaryButtonBackgroundColor: .white,
+            secondaryButtonLabel: coins > 0 ? .init(text: "Spend coins", color: .white) : nil
+        )
+        return base
+    }
+
+    private static let ink = UIColor(red: 0.078, green: 0.071, blue: 0.110, alpha: 1)
+
     /// Always return *something*.
     ///
     /// If this data source is slow or throws, the system substitutes Apple's generic grey
@@ -57,17 +89,14 @@ final class LumoShieldConfiguration: ShieldConfigurationDataSource {
     private static var placeholder: ShieldConfiguration {
         ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterialDark,
-            backgroundColor: UIColor(red: 0.078, green: 0.071, blue: 0.110, alpha: 1), // ink
+            backgroundColor: ink,
             icon: nil,
             title: .init(text: "Light comes first", color: .white),
             subtitle: .init(
                 text: "Open Lumo to see what this costs.",
                 color: UIColor.white.withAlphaComponent(0.75)
             ),
-            primaryButtonLabel: .init(
-                text: "Not now",
-                color: UIColor(red: 0.078, green: 0.071, blue: 0.110, alpha: 1)
-            ),
+            primaryButtonLabel: .init(text: "Not now", color: ink),
             primaryButtonBackgroundColor: .white,
             secondaryButtonLabel: nil
         )
