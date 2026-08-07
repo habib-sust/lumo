@@ -49,6 +49,15 @@ jobs:
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO -quiet
 
+      # Covers the seams where every device bug lived: SwiftUI presentation semantics,
+      # navigation state, and whether saving silently wipes data. The system app picker cannot
+      # run in the Simulator, so selections are seeded via launch arguments instead.
+      - name: UI tests
+        run: |
+          xcodebuild test -scheme Lumo \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
+            -only-testing:LumoUITests CODE_SIGNING_ALLOWED=NO -quiet
+
 # NOT covered here, and cannot be: AuthorizationCenter, ManagedSettingsStore,
 # DeviceActivityCenter, FamilyActivityPicker, and all three app extensions. Family
 # Controls does not function in the Simulator at all — it needs a passcode-locked,

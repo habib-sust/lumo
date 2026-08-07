@@ -15,13 +15,9 @@ import Observation
 final class SelectionService {
 
     /// Apps the user has marked as never-shield.
-    var essentialSelection = FamilyActivitySelection() {
-        didSet { didEditEssential = true }
-    }
+    var essentialSelection = FamilyActivitySelection()
     /// Apps the user wants shielded.
-    var blockSelection = FamilyActivitySelection() {
-        didSet { didEditBlocked = true }
-    }
+    var blockSelection = FamilyActivitySelection()
 
     /// Whether the user actually opened and used each picker in this session.
     ///
@@ -29,8 +25,19 @@ final class SelectionService {
     /// picker — the in-memory selection always starts empty. Treating it as authoritative meant
     /// re-picking one list silently wiped the other. Observed on device: editing the blocklist
     /// erased three protected apps, which is the one failure mode here with a physical-harm path.
+    ///
+    /// Set EXPLICITLY when a picker is dismissed, not via a `didSet` on the selection. SwiftUI
+    /// writes a binding back during setup, so `didSet` fired with an empty value and reintroduced
+    /// the very wipe it was added to prevent — caught by testSavingWithoutTouchingEitherPicker.
     private(set) var didEditEssential = false
     private(set) var didEditBlocked = false
+
+    /// Records genuine user interaction with a picker.
+    ///
+    /// An empty result is still an edit: clearing a list on purpose must be honoured.
+    func markEdited(essential: Bool) {
+        if essential { didEditEssential = true } else { didEditBlocked = true }
+    }
 
     private(set) var lastOutcome: BucketPartitioner.Outcome?
     private(set) var commitError: CommitFailure?
@@ -85,6 +92,14 @@ final class SelectionService {
         guard var table = try? store.loadBuckets() else {
             commitError = .storeUnavailable
             return false
+        }
+        // Respects didEditEssential exactly as commit() does. An earlier fix covered only
+        // commit(), so this path still overwrote the persisted set with the empty in-memory one —
+        // caught by testSavingWithoutTouchingEitherPickerPreservesBoth.
+        guard didEditEssential else {
+            LumoStack.diagnostics(for: .app).record(
+                "selection.essentialUntouched", detail: "preserved \(table.essential.count)")
+            return true
         }
         table.essential = blobs(from: essentialSelection)
         for token in table.essential { table.markEssential(token) }

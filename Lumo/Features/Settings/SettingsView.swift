@@ -49,13 +49,15 @@ struct SettingsView: View {
             case .diagnostics: DebugPanelView()
             }
         }
-        .confirmationDialog(
-            "Unlock everything?",
-            isPresented: $isConfirmingTeardown,
-            titleVisibility: .visible
-        ) {
-            Button("Unlock everything", role: .destructive) { tearDown() }
+        // `.alert` rather than `.confirmationDialog`. Settings is itself presented as a sheet, and
+        // in that context a confirmationDialog renders popover-style and DROPS its `.cancel` button
+        // entirely — an element-hierarchy dump showed the only button on screen was "Unlock
+        // everything", with an outside-tap as the sole way to back out. For an irreversible-looking
+        // destructive action, the only visible option must not be the destructive one. An alert
+        // renders both buttons in every presentation context.
+        .alert("Unlock everything?", isPresented: $isConfirmingTeardown) {
             Button("Cancel", role: .cancel) {}
+            Button("Unlock everything", role: .destructive) { tearDown() }
         } message: {
             // Says exactly what survives. Someone leaving should not have to guess whether they
             // are also destroying their progress.
@@ -73,6 +75,7 @@ struct SettingsView: View {
     private var appsSection: some View {
         Section {
             Button("Change your apps") { destination = .manageApps }
+                .accessibilityIdentifier("settings.changeApps")
                 .foregroundStyle(Color.lumoFlare)
         } header: {
             Text("Apps").foregroundStyle(Color.lumoHaze)
@@ -84,6 +87,7 @@ struct SettingsView: View {
     private var diagnosticsSection: some View {
         Section {
             Button("Show diagnostics") { destination = .diagnostics }
+                .accessibilityIdentifier("settings.showDiagnostics")
                 .foregroundStyle(Color.lumoHaze)
         } footer: {
             // Shipped rather than Debug-gated: when a user reports "it stopped locking", this is
@@ -128,6 +132,7 @@ struct SettingsView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Unlock everything and remove Lumo")
+                        .accessibilityIdentifier("settings.unlockEverything.label")
                         .font(.body.weight(.medium))
                         .foregroundStyle(Color.lumoEmber)
                     // No Screen Time passcode, no support form, no delay. Stated up front so the

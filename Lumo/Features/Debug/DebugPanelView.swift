@@ -99,6 +99,7 @@ struct DebugPanelView: View {
                 }
             }
             .navigationTitle("Debug")
+            .accessibilityIdentifier("debug.root")
             .scrollContentBackground(.hidden)
             .background(Color.lumoInk)
         }

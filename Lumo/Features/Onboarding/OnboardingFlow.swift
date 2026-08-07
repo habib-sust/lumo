@@ -166,6 +166,9 @@ private struct EssentialAppsStep: View {
                     isPickerPresented = true
                 }
                 Button(selection.essentialCount > 0 ? "Next" : "Skip for now") {
+                    // Onboarding always presents the essential picker, so leaving this step is an
+                    // explicit statement about the essential list — including "none".
+                    selection.markEdited(essential: true)
                     // Saved here rather than at the end of the flow. Waiting meant a user who
                     // protected their medical apps and then skipped the blocklist lost that
                     // protection entirely.
@@ -251,6 +254,7 @@ private struct BlockListStep: View {
                     isBusy: false,
                     isEnabled: selection.blockedAppCount > 0 && !selection.isOverCap
                 ) {
+                    selection.markEdited(essential: false)
                     if selection.commit() { onDone() }
                 }
                 Button("Skip for now") {

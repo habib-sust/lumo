@@ -31,6 +31,10 @@ struct LumoApp: App {
         // cross-process lock and in that order — the reconciler must never see a half-converted
         // payload. Only the app may migrate; the extensions read the version and refuse to write
         // on a mismatch.
+        // Before startUp(), so a reset lands on a clean slate and seeded state is migrated
+        // and reconciled like any other.
+        UITestSupport.apply()
+
         LumoStack.startUp()
 
         #if DEBUG
@@ -44,7 +48,7 @@ struct LumoApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if hasCompletedSetup {
+                if hasCompletedSetup || UITestSupport.shouldSkipOnboarding {
                     HomePlaceholder()
                 } else {
                     OnboardingFlow { hasCompletedSetup = true }
@@ -96,6 +100,7 @@ private struct HomePlaceholder: View {
                 // Reachable from the first screen, not buried. The escape hatch is worthless if
                 // a frustrated user cannot find it.
                 Button("Settings") { isShowingSettings = true }
+                    .accessibilityIdentifier("home.settings")
                     .font(.callout)
                     .foregroundStyle(Color.lumoHaze)
                     .padding(.top, 24)

@@ -46,6 +46,7 @@ struct ManageAppsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                        .accessibilityIdentifier("manage.done")
                 }
             }
         }
@@ -89,6 +90,7 @@ struct ManageAppsView: View {
                     Text("\(committed.apps) apps, \(committed.categories) categories")
                         .font(.callout.monospaced())
                         .foregroundStyle(Color.lumoMoss)
+                        .accessibilityIdentifier("manage.lockedCount")
                 }
                 HStack {
                     Text("Protected now").foregroundStyle(.white)
@@ -96,6 +98,7 @@ struct ManageAppsView: View {
                     Text("\(committed.essential)")
                         .font(.callout.monospaced())
                         .foregroundStyle(Color.lumoMoss)
+                        .accessibilityIdentifier("manage.protectedCount")
                 }
             } else {
                 Text("Nothing saved yet").foregroundStyle(Color.lumoHaze)
@@ -111,6 +114,7 @@ struct ManageAppsView: View {
     private var essentialSection: some View {
         Section {
             Button("Choose apps to protect") { editing = .essential }
+                .accessibilityIdentifier("manage.pickEssential")
                 .foregroundStyle(Color.lumoMoss)
             if selection.essentialCount > 0 {
                 Text("\(selection.essentialCount) selected")
@@ -127,6 +131,7 @@ struct ManageAppsView: View {
     private var blockSection: some View {
         Section {
             Button("Choose apps to lock") { editing = .blocked }
+                .accessibilityIdentifier("manage.pickBlocked")
                 .foregroundStyle(Color.lumoEmber)
             if selection.blockedAppCount > 0 {
                 HStack {
@@ -151,6 +156,11 @@ struct ManageAppsView: View {
     private func onPickerDismissed() {
         let target = editing
         editing = nil
+        if let target {
+            // Explicit, and only here: dismissal is the one moment we know the user actually used
+            // this picker rather than SwiftUI merely evaluating its binding.
+            selection.markEdited(essential: target == .essential)
+        }
         LumoStack.diagnostics(for: .app).record(
             "picker.dismissed",
             detail: "\(target == .blocked ? "blocked" : "essential") apps \(target == .blocked ? selection.blockedAppCount : selection.essentialCount)"
@@ -164,13 +174,10 @@ struct ManageAppsView: View {
                     "save.tapped",
                     detail: "block \(selection.blockedAppCount) essential \(selection.essentialCount)"
                 )
-                // Essential is saved even when the blocklist is empty, so clearing the blocklist
-                // never discards protection.
-                if selection.blockedAppCount > 0 {
-                    saved = selection.commit()
-                } else {
-                    saved = selection.commitEssentialOnly()
-                }
+                // Always commit() — it already preserves whichever list was not edited. Branching
+                // on the in-memory blocklist count routed an untouched-blocklist save into
+                // commitEssentialOnly(), which is how the wipe survived its first fix.
+                saved = selection.commit()
                 committed = selection.loadCommittedCounts()
             }
             .foregroundStyle(selection.isOverCap ? Color.lumoHaze : Color.lumoFlare)

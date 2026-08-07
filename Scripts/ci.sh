@@ -42,7 +42,15 @@ step "build for iOS device" \
     xcodebuild build -scheme Lumo -destination 'generic/platform=iOS' \
     CODE_SIGNING_ALLOWED=NO -quiet
 
-# 4. Link-graph and size gates. No-ops until T-008 creates the extension targets.
+# 4. UI tests. Slow (~2 min) but they cover the seams where every device bug lived — SwiftUI
+#    presentation semantics, navigation state, and whether saving wipes data. Five of the eight
+#    bugs found in the first hardware session were reachable this way.
+step "UI tests (simulator)" \
+    xcodebuild test -scheme Lumo \
+    -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
+    -only-testing:LumoUITests CODE_SIGNING_ALLOWED=NO -quiet
+
+# 5. Link-graph and size gates. No-ops until T-008 creates the extension targets.
 DD="$(xcodebuild -showBuildSettings -scheme Lumo -destination 'generic/platform=iOS' 2>/dev/null \
       | awk '/ BUILT_PRODUCTS_DIR =/{print $3; exit}')"
 if [ -n "${DD:-}" ] && [ -d "$DD" ]; then
