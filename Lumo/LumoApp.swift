@@ -32,6 +32,13 @@ struct LumoApp: App {
         // payload. Only the app may migrate; the extensions read the version and refuse to write
         // on a mismatch.
         LumoStack.startUp()
+
+        #if DEBUG
+        // Printed to stdout, not os_log, specifically so `devicectl --console` can capture it.
+        // Family Controls cannot run in the Simulator, so this is the only way to read real
+        // on-device state from a development machine.
+        print(DebugSnapshot.capture().report)
+        #endif
     }
 
     var body: some Scene {

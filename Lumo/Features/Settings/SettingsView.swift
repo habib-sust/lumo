@@ -14,11 +14,14 @@ struct SettingsView: View {
     @State private var isConfirmingTeardown = false
     @State private var releasedCount: Int?
 
+    @State private var isShowingDebug = false
+
     var body: some View {
         NavigationStack {
             List {
                 honestySection
                 escapeSection
+                diagnosticsSection
             }
             .scrollContentBackground(.hidden)
             .background(Color.lumoInk)
@@ -36,6 +39,21 @@ struct SettingsView: View {
             // are also destroying their progress.
             Text("Every app opens again right away. Your coins and streak are kept, so you can pick up where you left off if you come back.")
         }
+    }
+
+    // MARK: - Diagnostics
+
+    private var diagnosticsSection: some View {
+        Section {
+            Button("Show diagnostics") { isShowingDebug = true }
+                .foregroundStyle(Color.lumoHaze)
+        } footer: {
+            // Shipped rather than Debug-gated: when a user reports "it stopped locking", this is
+            // the only thing that can say why.
+            Text("If something isn't working, this shows Lumo's current state.")
+                .foregroundStyle(Color.lumoHaze.opacity(0.8))
+        }
+        .sheet(isPresented: $isShowingDebug) { DebugPanelView() }
     }
 
     // MARK: - Honesty
