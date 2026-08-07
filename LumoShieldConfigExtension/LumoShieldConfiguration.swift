@@ -6,86 +6,129 @@ import UIKit
 
 /// Supplies the shield screen's appearance.
 ///
-/// `import UIKit` is mandatory here, not incidental: `ShieldConfiguration` is built from
-/// `UIColor`, `UIImage` and `UIBlurEffect.Style`, and the project enables
-/// MemberImportVisibility so UIKit does not arrive transitively. This is also why
-/// LumoShieldKit must never expose a UIKit type — the 6 MB monitor extension would inherit
-/// the link. (That regressed once already, via FamilyControls, and was caught by the
-/// link-graph gate rather than by review.)
+/// `import UIKit` is mandatory here: `ShieldConfiguration` is built from `UIColor`, `UIImage` and
+/// `UIBlurEffect.Style`, and the project enables MemberImportVisibility so UIKit does not arrive
+/// transitively. This is also why LumoShieldKit must never expose a UIKit type — the 6 MB monitor
+/// extension would inherit the link. That regressed twice already, via FamilyControls both times,
+/// and the link-graph gate caught it rather than review.
 ///
-/// **This extension is read-only with respect to shield state.** It may compute what the
-/// state *should* be and render truthfully, but it must never write a
-/// `ManagedSettingsStore`. Writing shield state from inside the "what should I render?"
-/// callback invites re-entrant invalidation, and this callback sits on a latency-sensitive
-/// path that the system can invoke repeatedly.
+/// **Read-only with respect to shield state.** It may compute what the state should be and render
+/// truthfully, but it must never write a `ManagedSettingsStore`. Writing from inside the "what
+/// should I render?" callback invites re-entrant invalidation on a latency-sensitive path the system
+/// can invoke repeatedly.
 ///
-/// The shield is a fixed system layout: blurred background, one icon, title, subtitle, and
-/// up to two buttons — text and colour only. No custom SwiftUI is possible. So anything
-/// resembling a friction screen or a breathing exercise lives in the Lumo app, not here.
+/// The shield is a fixed system layout: blurred background, one icon, title, subtitle, up to two
+/// buttons — text and colour only. No custom SwiftUI is possible, which is why anything resembling a
+/// friction screen lives in the Lumo app instead.
 final class LumoShieldConfiguration: ShieldConfigurationDataSource {
 
     override func configuration(shielding application: Application) -> ShieldConfiguration {
-        // Read-only: `observe` holds no ShieldStoring, so this cannot mutate shield state from
-        // inside the "what should I render?" callback even by accident.
-        // TODO(T-051 completion): on iOS 26.4+ attach secondaryButtonSubmenuItems for the tiers.
-        Self.shield(for: LumoStack.stateStore(for: .shieldConfig))
+        Self.shield(for: Self.blob(from: application))
     }
 
     override func configuration(
         shielding application: Application,
         in category: ActivityCategory
     ) -> ShieldConfiguration {
-        Self.placeholder
+        Self.shield(for: Self.blob(from: application))
     }
 
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
-        Self.placeholder
+        Self.shield(for: nil)
     }
 
     override func configuration(
         shielding webDomain: WebDomain,
         in category: ActivityCategory
     ) -> ShieldConfiguration {
-        Self.placeholder
+        Self.shield(for: nil)
     }
 
-    /// Renders the current wallet if it is readable, and a truthful generic shield otherwise.
-    private static func shield(for store: DefaultsStateStore?) -> ShieldConfiguration {
-        guard let store else { return placeholder }
-        let observation = ShieldReconciler.observe(state: store)
-        guard !observation.isSafeMode else { return placeholder }
-        return configuration(coins: observation.wallet.total)
-    }
-
-    private static func configuration(coins: Int) -> ShieldConfiguration {
-        var base = placeholder
-        base = ShieldConfiguration(
-            backgroundBlurStyle: .systemUltraThinMaterialDark,
-            backgroundColor: ink,
-            icon: nil,
-            title: .init(text: "Light comes first", color: .white),
-            subtitle: .init(
-                text: coins > 0
-                    ? "You have \(coins) coins. Open Lumo to spend them."
-                    : "Do something first. Open Lumo to see how to earn.",
-                color: UIColor.white.withAlphaComponent(0.75)
-            ),
-            primaryButtonLabel: .init(text: "Not now", color: ink),
-            primaryButtonBackgroundColor: .white,
-            secondaryButtonLabel: coins > 0 ? .init(text: "Spend coins", color: .white) : nil
-        )
-        return base
-    }
+    // MARK: - Rendering
 
     private static let ink = UIColor(red: 0.078, green: 0.071, blue: 0.110, alpha: 1)
 
+    private static func blob(from application: Application) -> TokenBlob? {
+        guard let token = application.token else { return nil }
+        return try? TokenCodec.blob(from: token)
+    }
+
+    /// Builds the shield from the live wallet, or a truthful generic one if anything is unreadable.
+    private static func shield(for token: TokenBlob?) -> ShieldConfiguration {
+        guard let store = LumoStack.stateStore(for: .shieldConfig) else { return placeholder }
+
+        // `observe` holds no ShieldStoring, so this path structurally cannot mutate shield state.
+        let observation = ShieldReconciler.observe(state: store)
+        guard !observation.isSafeMode else { return placeholder }
+
+        // An unrecognised token is a real case rather than a theoretical one: iOS reissues tokens
+        // unpredictably. Render a truthful generic Lumo shield instead of crashing — or worse,
+        // returning slowly and letting the system substitute its own grey wall.
+        guard let token,
+              let table = try? store.loadBuckets(),
+              let bucket = table.bucket(for: token)
+        else { return placeholder }
+
+        let policy = Policy.default
+        let offers = TierLadder.affordableTiers(
+            bucket: bucket.id, wallet: observation.wallet, policy: policy)
+
+        return configuration(coins: observation.wallet.total, offers: offers)
+    }
+
+    private static func configuration(
+        coins: Int,
+        offers: [SpendCoordinator.Offer]
+    ) -> ShieldConfiguration {
+        let subtitle = coins > 0
+            ? "You have \(coins) coins."
+            : "Do something first. Open Lumo to see how to earn."
+
+        // Note there is no motivational text anywhere on this screen. The preregistered
+        // decomposition of this mechanic found the dismiss option and the delay did the work, while
+        // the deliberation message did nothing measurable.
+        let title = ShieldConfiguration.Label(text: "Light comes first", color: .white)
+        let subtitleLabel = ShieldConfiguration.Label(
+            text: subtitle, color: UIColor.white.withAlphaComponent(0.75))
+        let primary = ShieldConfiguration.Label(text: "Not now", color: ink)
+        let secondary = offers.isEmpty
+            ? nil
+            : ShieldConfiguration.Label(text: "Spend coins", color: .white)
+
+        // On iOS 26.4+ the price tiers go straight onto the shield, so the transaction settles with
+        // no app switch at all. The labels come from the SAME pure function the action extension
+        // uses, because the submenu round-trips a POSITION rather than an identity — and the system
+        // supplies its own Cancel, so spending one of only three slots on one would be waste.
+        if #available(iOS 26.4, *), !offers.isEmpty {
+            return ShieldConfiguration(
+                backgroundBlurStyle: .systemUltraThinMaterialDark,
+                backgroundColor: ink,
+                icon: nil,
+                title: title,
+                subtitle: subtitleLabel,
+                primaryButtonLabel: primary,
+                primaryButtonBackgroundColor: .white,
+                secondaryButtonLabel: secondary,
+                secondaryButtonSubmenuItems: TierLadder.submenuLabels(for: offers)
+            )
+        }
+
+        return ShieldConfiguration(
+            backgroundBlurStyle: .systemUltraThinMaterialDark,
+            backgroundColor: ink,
+            icon: nil,
+            title: title,
+            subtitle: subtitleLabel,
+            primaryButtonLabel: primary,
+            primaryButtonBackgroundColor: .white,
+            secondaryButtonLabel: secondary
+        )
+    }
+
     /// Always return *something*.
     ///
-    /// If this data source is slow or throws, the system substitutes Apple's generic grey
-    /// shield — which silently replaces Lumo's only conversion surface with an anonymous
-    /// wall. The same fallback covers unrecognised tokens, which happen for real: iOS
-    /// reissues tokens unpredictably, so an unknown token must render a truthful generic
-    /// Lumo shield rather than crash or show nothing.
+    /// If this data source is slow or throws, the system substitutes Apple's generic grey shield —
+    /// silently replacing Lumo's only conversion surface with an anonymous wall.
     private static var placeholder: ShieldConfiguration {
         ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterialDark,

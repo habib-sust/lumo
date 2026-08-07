@@ -3,18 +3,15 @@ import LumoShieldKit
 import ManagedSettings
 import os
 
-/// Handles taps on the shield.
+/// Handles taps on the shield, and settles the coin spend in-process.
 ///
-/// This extension is where a coin spend actually settles on iOS 26.4+, because there is no
-/// supported way to open the containing app from here on iOS 18.0–26.4 (an Apple Frameworks
-/// Engineer confirmed this, and every workaround needs private API — a removal-grade
-/// guideline violation). iOS 26.5 added `.openParentalControlsApp`, but it carries no
-/// context, so the App Group handoff stays mandatory either way.
+/// Settling here rather than in the app is not a preference: on iOS 18.0–26.4 there is no supported
+/// way to open the containing app from a shield action (confirmed by an Apple Frameworks Engineer),
+/// and every workaround needs private API — a removal-grade guideline violation. iOS 26.5 added
+/// `.openParentalControlsApp`, but it carries no context, so it can only ever be a courtesy.
 ///
-/// Three response paths will exist here:
-///   * iOS 26.5+  `.openParentalControlsApp`, pending a device spike on its semantics
-///   * iOS 26.4+  submenu tier tapped, transaction settles in-process
-///   * iOS 18.0+  write a pending request, post a local notification, `.close`
+/// The extension therefore does the transaction itself. It can, because it holds the Family Controls
+/// entitlement and may write both `ManagedSettingsStore` and `DeviceActivityCenter`.
 final class LumoShieldAction: ShieldActionDelegate {
 
     private static let log = Logger(subsystem: "com.habib.Lumo.shieldaction", category: "action")
@@ -24,7 +21,7 @@ final class LumoShieldAction: ShieldActionDelegate {
         for application: ApplicationToken,
         completionHandler: @escaping (ShieldActionResponse) -> Void
     ) {
-        completionHandler(respond(to: action))
+        completionHandler(respond(to: action, token: try? TokenCodec.blob(from: application)))
     }
 
     override func handle(
@@ -32,7 +29,7 @@ final class LumoShieldAction: ShieldActionDelegate {
         for webDomain: WebDomainToken,
         completionHandler: @escaping (ShieldActionResponse) -> Void
     ) {
-        completionHandler(respond(to: action))
+        completionHandler(respond(to: action, token: try? TokenCodec.blob(from: webDomain)))
     }
 
     override func handle(
@@ -40,48 +37,83 @@ final class LumoShieldAction: ShieldActionDelegate {
         for category: ActivityCategoryToken,
         completionHandler: @escaping (ShieldActionResponse) -> Void
     ) {
-        completionHandler(respond(to: action))
+        completionHandler(respond(to: action, token: try? TokenCodec.blob(from: category)))
     }
 
     // MARK: - Dispatch
 
-    private func respond(to action: ShieldAction) -> ShieldActionResponse {
-        // `@unknown default` is mandatory, not defensive: ShieldAction and
-        // ShieldActionResponse are library-evolution enums and both gained cases recently
-        // (iOS 26.4 added the three submenu cases, 26.5 added openParentalControlsApp).
+    private func respond(to action: ShieldAction, token: TokenBlob?) -> ShieldActionResponse {
+        // `@unknown default` is mandatory rather than defensive: ShieldAction is a
+        // library-evolution enum that gained three submenu cases in iOS 26.4.
         switch action {
         case .primaryButtonPressed:
             return .close
 
         case .secondaryButtonPressed:
-            // Pre-26.4 path, and also the fallback when no submenu was supplied — Apple
-            // documents that providing submenu items SUPPRESSES this case, so both paths
-            // have to exist.
-            // Reconcile first so the state the app wakes up to is already correct, then let
-            // the app do the actual pricing — the tier ladder must be recomputed, never carried
-            // across a process boundary.
-            LumoStack.reconcileNow(.shieldAction)
-            DarwinPing.spendSettled.post()
-            Self.log.info("secondaryButtonPressed")
-            return .close
+            // Reached only when NO submenu was supplied — Apple documents that providing submenu
+            // items suppresses this case. So both paths genuinely have to exist, and the plain
+            // button buys the cheapest affordable tier.
+            return spend(token: token, tierIndex: 0)
 
-        case .firstSecondarySubmenuItemPressed,
-             .secondSecondarySubmenuItemPressed,
-             .thirdSecondarySubmenuItemPressed:
-            // The submenu round-trips a POSITION, not an identity. So the tier ladder must
-            // be recomputed here as a pure function of (bucket, wallet, policy) and
-            // validated against a fingerprint — never read from a written handshake, which
-            // would be a cross-process race that silently sells the wrong tier.
-            // TODO(T-052 completion): recompute the tier ladder here as a pure function of
-            // (bucket, wallet, policy) and validate its fingerprint before spending. The submenu
-            // hands back a POSITION, not an identity, so a written handshake between the config
-            // and action extensions would be a race that silently sells the wrong tier.
-            LumoStack.reconcileNow(.shieldAction)
-            Self.log.info("submenu item pressed")
-            return .close
+        case .firstSecondarySubmenuItemPressed:
+            return spend(token: token, tierIndex: 0)
+        case .secondSecondarySubmenuItemPressed:
+            return spend(token: token, tierIndex: 1)
+        case .thirdSecondarySubmenuItemPressed:
+            return spend(token: token, tierIndex: 2)
 
         @unknown default:
             return .close
+        }
+    }
+
+    /// Prices and settles, entirely in this process.
+    private func spend(token: TokenBlob?, tierIndex: Int) -> ShieldActionResponse {
+        guard let token,
+              let store = LumoStack.stateStore(for: .shieldAction),
+              let table = try? store.loadBuckets(),
+              let bucket = table.bucket(for: token),
+              let state = try? store.loadState(),
+              let coordinator = LumoStack.spendCoordinator(for: .shieldAction)
+        else {
+            Self.log.error("spend unavailable")
+            return .close
+        }
+
+        // The ladder is RECOMPUTED here, never read from shared state. The submenu round-trips a
+        // POSITION, not an identity, so the config extension rendered a list and this process
+        // received only an index. Two processes evaluating the same pure function cannot disagree;
+        // a written handshake between them would be a race that silently sells the wrong tier.
+        let policy = Policy.default
+        guard let offer = TierLadder.offer(
+            atSubmenuIndex: tierIndex,
+            bucket: bucket.id,
+            wallet: state.wallet,
+            policy: policy,
+            expectedFingerprint: policy.fingerprint
+        ) else {
+            // Refusing costs the user a tap; guessing charges them for a window they did not choose.
+            Self.log.info("no affordable offer at index \(tierIndex, privacy: .public)")
+            return .close
+        }
+
+        do {
+            let receipt = try coordinator.spend(offer)
+            Self.log.info("settled \(offer.price, privacy: .public) coins")
+            // Nudge the app to refresh if it happens to be alive. Nothing depends on delivery.
+            DarwinPing.spendSettled.post()
+            _ = receipt
+
+            // `.close` rather than `.defer`. There is no ShieldActionResponse meaning "dismiss the
+            // shield and let the app run", and community reports conflict on whether `.defer`
+            // dismisses in place or simply re-renders. `.close` is deterministic: the shield goes
+            // away and the user relaunches the now-unshielded app. One extra tap, no ambiguity.
+            return .close
+        } catch {
+            Self.log.error("spend failed: \(String(describing: error), privacy: .public)")
+            // Redraw the shield so the user can see they were not charged, rather than being
+            // dropped to the Home screen wondering whether it worked.
+            return .defer
         }
     }
 }
