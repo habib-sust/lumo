@@ -17,8 +17,18 @@ struct ManageAppsView: View {
     @Environment(SelectionService.self) private var selection
     @Environment(\.dismiss) private var dismiss
 
-    @State private var isEssentialPickerPresented = false
-    @State private var isBlockPickerPresented = false
+    /// Which list the single picker is currently editing.
+    ///
+    /// There is ONE picker modifier, not two. `.familyActivityPicker` is a sheet presentation, and
+    /// SwiftUI cannot host two sheet presentations on the same view — attaching one per list meant
+    /// they conflicted and at most one ever worked. Onboarding avoided this only because each step
+    /// is a separate view with a single picker.
+    @State private var editing: Target?
+
+    private enum Target: Identifiable {
+        case essential, blocked
+        var id: Int { self == .essential ? 0 : 1 }
+    }
     @State private var saved = false
     @State private var committed: (apps: Int, categories: Int, essential: Int)?
 
@@ -40,23 +50,27 @@ struct ManageAppsView: View {
             }
         }
         .task { committed = selection.loadCommittedCounts() }
-        // Both pickers attach to this screen, never to a nested sheet.
+        // Exactly one picker modifier, switched by `editing`.
         .familyActivityPicker(
-            headerText: "Never lock these",
-            footerText: "Anything you choose here stays open, always.",
-            isPresented: $isEssentialPickerPresented,
+            headerText: editing == .essential ? "Never lock these" : "Lock these until you earn",
+            footerText: editing == .essential
+                ? "Anything you choose here stays open, always."
+                : "Lumo never sees which apps you pick — iOS keeps that private, even from us.",
+            isPresented: Binding(
+                get: { editing != nil },
+                set: { if !$0 { onPickerDismissed() } }
+            ),
             selection: Binding(
-                get: { selection.essentialSelection },
-                set: { selection.essentialSelection = $0 }
-            )
-        )
-        .familyActivityPicker(
-            headerText: "Lock these until you earn",
-            footerText: "Lumo never sees which apps you pick — iOS keeps that private, even from us.",
-            isPresented: $isBlockPickerPresented,
-            selection: Binding(
-                get: { selection.blockSelection },
-                set: { selection.blockSelection = $0 }
+                get: {
+                    editing == .blocked ? selection.blockSelection : selection.essentialSelection
+                },
+                set: { updated in
+                    if editing == .blocked {
+                        selection.blockSelection = updated
+                    } else {
+                        selection.essentialSelection = updated
+                    }
+                }
             )
         )
     }
@@ -96,7 +110,7 @@ struct ManageAppsView: View {
 
     private var essentialSection: some View {
         Section {
-            Button("Choose apps to protect") { isEssentialPickerPresented = true }
+            Button("Choose apps to protect") { editing = .essential }
                 .foregroundStyle(Color.lumoMoss)
             if selection.essentialCount > 0 {
                 Text("\(selection.essentialCount) selected")
@@ -112,7 +126,7 @@ struct ManageAppsView: View {
 
     private var blockSection: some View {
         Section {
-            Button("Choose apps to lock") { isBlockPickerPresented = true }
+            Button("Choose apps to lock") { editing = .blocked }
                 .foregroundStyle(Color.lumoEmber)
             if selection.blockedAppCount > 0 {
                 HStack {
@@ -130,9 +144,26 @@ struct ManageAppsView: View {
         }
     }
 
+    /// Records what the picker actually returned.
+    ///
+    /// Instrumented because "the picker returned nothing" and "the picker never opened" are
+    /// indistinguishable from the outside, and that ambiguity has already cost two round trips.
+    private func onPickerDismissed() {
+        let target = editing
+        editing = nil
+        LumoStack.diagnostics(for: .app).record(
+            "picker.dismissed",
+            detail: "\(target == .blocked ? "blocked" : "essential") apps \(target == .blocked ? selection.blockedAppCount : selection.essentialCount)"
+        )
+    }
+
     private var saveSection: some View {
         Section {
             Button("Save") {
+                LumoStack.diagnostics(for: .app).record(
+                    "save.tapped",
+                    detail: "block \(selection.blockedAppCount) essential \(selection.essentialCount)"
+                )
                 // Essential is saved even when the blocklist is empty, so clearing the blocklist
                 // never discards protection.
                 if selection.blockedAppCount > 0 {
