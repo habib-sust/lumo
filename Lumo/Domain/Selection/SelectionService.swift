@@ -57,6 +57,34 @@ final class SelectionService {
 
     // MARK: - Commit
 
+    /// Persists the essential set on its own, without touching the blocklist.
+    ///
+    /// Called when leaving the essential step rather than waiting for the end of the flow. The
+    /// previous version only saved on the final commit, so a user who protected their medical apps
+    /// and then skipped the blocklist had that protection silently discarded — the one failure mode
+    /// in this project with a physical-harm path.
+    @discardableResult
+    func commitEssentialOnly() -> Bool {
+        guard let store = LumoStack.stateStore(for: .app) else {
+            commitError = .appGroupUnavailable
+            return false
+        }
+        guard var table = try? store.loadBuckets() else {
+            commitError = .storeUnavailable
+            return false
+        }
+        table.essential = blobs(from: essentialSelection)
+        for token in table.essential { table.markEssential(token) }
+        guard (try? store.saveBuckets(table)) != nil else {
+            commitError = .storeUnavailable
+            return false
+        }
+        LumoStack.reconcileNow(.app)
+        LumoStack.diagnostics(for: .app).record(
+            "selection.essentialSaved", detail: "\(table.essential.count) token(s)")
+        return true
+    }
+
     /// Persists both selections and applies shields.
     ///
     /// All-or-nothing. Over the cap the whole commit is refused and the overflow is named, because
@@ -89,6 +117,10 @@ final class SelectionService {
             )
             try store.saveBuckets(outcome.table)
             lastOutcome = outcome
+            LumoStack.diagnostics(for: .app).record(
+                "selection.committed",
+                detail: "added \(outcome.added.count) retained \(outcome.retained.count) refusedEssential \(outcome.refusedAsEssential.count) tableTotal \(outcome.table.buckets.count)"
+            )
 
             // Apply immediately. A saved-but-unapplied blocklist is the state where the UI says
             // "locked" and nothing is.
@@ -132,7 +164,16 @@ final class SelectionService {
         // A token that will not encode is silently dropped rather than failing the whole commit:
         // losing one app from the blocklist is recoverable by re-picking, whereas refusing the
         // commit strands the user with no blocklist at all.
-        Set(selection.applicationTokens.compactMap { try? TokenCodec.blob(from: $0) })
+        let encoded = selection.applicationTokens.compactMap { try? TokenCodec.blob(from: $0) }
+        let unique = Set(encoded)
+        // Instrumented because a silent drop OR a silent collision here both present identically:
+        // a blocklist that mysteriously ends up empty. Distinct-count is the decisive number —
+        // if N tokens produce fewer than N blobs, the codec is not preserving identity.
+        LumoStack.diagnostics(for: .app).record(
+            "selection.encodeApps",
+            detail: "tokens \(selection.applicationTokens.count) encoded \(encoded.count) distinct \(unique.count) bytes \(encoded.first?.raw.count ?? -1)"
+        )
+        return unique
     }
 
     private func blobs(fromCategories selection: FamilyActivitySelection) -> Set<TokenBlob> {

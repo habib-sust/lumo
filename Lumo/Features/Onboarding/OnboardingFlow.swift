@@ -165,7 +165,13 @@ private struct EssentialAppsStep: View {
                 PrimaryButton("Choose apps to protect", isBusy: false) {
                     isPickerPresented = true
                 }
-                Button(selection.essentialCount > 0 ? "Next" : "Skip for now", action: onNext)
+                Button(selection.essentialCount > 0 ? "Next" : "Skip for now") {
+                    // Saved here rather than at the end of the flow. Waiting meant a user who
+                    // protected their medical apps and then skipped the blocklist lost that
+                    // protection entirely.
+                    selection.commitEssentialOnly()
+                    onNext()
+                }
                     .font(.callout)
                     .foregroundStyle(Color.lumoHaze)
             }
@@ -247,9 +253,14 @@ private struct BlockListStep: View {
                 ) {
                     if selection.commit() { onDone() }
                 }
-                Button("Skip for now", action: onDone)
-                    .font(.callout)
-                    .foregroundStyle(Color.lumoHaze)
+                Button("Skip for now") {
+                    // Still persists the essential set, so skipping the blocklist never discards
+                    // protection the user already asked for.
+                    selection.commitEssentialOnly()
+                    onDone()
+                }
+                .font(.callout)
+                .foregroundStyle(Color.lumoHaze)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
