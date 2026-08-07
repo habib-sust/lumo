@@ -15,9 +15,22 @@ import Observation
 final class SelectionService {
 
     /// Apps the user has marked as never-shield.
-    var essentialSelection = FamilyActivitySelection()
+    var essentialSelection = FamilyActivitySelection() {
+        didSet { didEditEssential = true }
+    }
     /// Apps the user wants shielded.
-    var blockSelection = FamilyActivitySelection()
+    var blockSelection = FamilyActivitySelection() {
+        didSet { didEditBlocked = true }
+    }
+
+    /// Whether the user actually opened and used each picker in this session.
+    ///
+    /// Load-bearing. Tokens are opaque, so a persisted selection CANNOT be loaded back into a
+    /// picker — the in-memory selection always starts empty. Treating it as authoritative meant
+    /// re-picking one list silently wiped the other. Observed on device: editing the blocklist
+    /// erased three protected apps, which is the one failure mode here with a physical-harm path.
+    private(set) var didEditEssential = false
+    private(set) var didEditBlocked = false
 
     private(set) var lastOutcome: BucketPartitioner.Outcome?
     private(set) var commitError: CommitFailure?
@@ -103,20 +116,41 @@ final class SelectionService {
             return false
         }
 
-        // Essential first, and evicting as it goes, so no window exists in which a token is both
-        // essential and shielded.
-        table.essential = blobs(from: essentialSelection)
-        for token in table.essential { table.markEssential(token) }
+        // Only replace a list the user actually edited. Otherwise the persisted set stands.
+        if didEditEssential {
+            table.essential = blobs(from: essentialSelection)
+            for token in table.essential { table.markEssential(token) }
+        }
+
+        // Likewise, leave the blocklist alone if it was not touched.
+        let wantedApps = didEditBlocked
+            ? blobs(fromApplications: blockSelection)
+            : Set(table.buckets.values.filter { $0.kind == .application }.map(\.token))
+        let wantedCategories = didEditBlocked
+            ? blobs(fromCategories: blockSelection)
+            : Set(table.buckets.values.filter { $0.kind == .category }.map(\.token))
 
         do {
             let outcome = try BucketPartitioner.commit(
-                applications: blobs(fromApplications: blockSelection),
-                categories: blobs(fromCategories: blockSelection),
+                applications: wantedApps,
+                categories: wantedCategories,
                 into: table,
                 now: Date()
             )
             try store.saveBuckets(outcome.table)
             lastOutcome = outcome
+
+            // A slot that was just added or removed cannot keep a window bought for whatever used
+            // to occupy it, or a newly locked app inherits free access.
+            let reassigned = outcome.added.union(outcome.removed)
+            if var state = try? store.loadState() {
+                let dropped = state.invalidateWindows(forReassignedSlots: reassigned)
+                if dropped > 0 {
+                    try? store.saveState(state)
+                    LumoStack.diagnostics(for: .app).record(
+                        "selection.windowsInvalidated", detail: "\(dropped) for reassigned slots")
+                }
+            }
             LumoStack.diagnostics(for: .app).record(
                 "selection.committed",
                 detail: "added \(outcome.added.count) retained \(outcome.retained.count) refusedEssential \(outcome.refusedAsEssential.count) tableTotal \(outcome.table.buckets.count)"

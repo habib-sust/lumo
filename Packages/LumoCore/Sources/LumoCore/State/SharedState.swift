@@ -225,4 +225,28 @@ extension SharedState {
     public var unsettledIntents: [SpendIntent] {
         journal.filter { $0.phase == .intended || $0.phase == .armed }
     }
+
+    /// Drops windows whose bucket slot was reassigned or removed, returning the count.
+    ///
+    /// Slots are reused, and windows reference SLOTS rather than tokens — which is deliberate,
+    /// because tokens rotate and slots are the stable identity. The consequence is that when the
+    /// user re-picks their blocklist, a freshly-assigned slot can inherit a live window bought for
+    /// whatever previously occupied it. Observed on device: a newly locked app was silently open
+    /// because slot 1 still had a paid window from a different app.
+    ///
+    /// Not refunded. The user received exactly what they paid for — access to that app — and then
+    /// chose to remove it. Deleting the window is a correctness fix, not a penalty.
+    @discardableResult
+    public mutating func invalidateWindows(forReassignedSlots slots: Set<BucketID>) -> Int {
+        guard !slots.isEmpty else { return 0 }
+        let before = windows.count
+        windows.removeAll { slots.contains($0.bucket) }
+        // The mirror must forget them too, or the reconciler would believe those slots are already
+        // in their desired state and skip the write.
+        for slot in slots {
+            mirror.shielded.remove(slot)
+            mirror.unshielded.remove(slot)
+        }
+        return before - windows.count
+    }
 }
