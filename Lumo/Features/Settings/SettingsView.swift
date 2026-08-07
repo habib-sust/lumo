@@ -14,8 +14,22 @@ struct SettingsView: View {
     @State private var isConfirmingTeardown = false
     @State private var releasedCount: Int?
 
-    @State private var isShowingDebug = false
-    @State private var isShowingManageApps = false
+    /// One destination, one presenter.
+    ///
+    /// The two sheets used to be attached to their own `Section`s. A Section is not a stable
+    /// presentation host: the first render cycle after the state change replaces its identity and
+    /// tears the sheet straight back down, so the view appeared and vanished on first tap and only
+    /// worked from the second onwards.
+    ///
+    /// This is the same root cause as the double-`familyActivityPicker` bug — more than one sheet
+    /// presenter in one hierarchy, attached to something unstable. The general rule, learned twice:
+    /// **exactly one sheet modifier per view, hoisted to a stable container, switched by an enum.**
+    @State private var destination: Destination?
+
+    private enum Destination: Identifiable {
+        case manageApps, diagnostics
+        var id: Int { self == .manageApps ? 0 : 1 }
+    }
 
     var body: some View {
         NavigationStack {
@@ -28,6 +42,12 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(Color.lumoInk)
             .navigationTitle("Settings")
+        }
+        .sheet(item: $destination) { destination in
+            switch destination {
+            case .manageApps: ManageAppsView()
+            case .diagnostics: DebugPanelView()
+            }
         }
         .confirmationDialog(
             "Unlock everything?",
@@ -52,19 +72,18 @@ struct SettingsView: View {
     /// people will come here to do.
     private var appsSection: some View {
         Section {
-            Button("Change your apps") { isShowingManageApps = true }
+            Button("Change your apps") { destination = .manageApps }
                 .foregroundStyle(Color.lumoFlare)
         } header: {
             Text("Apps").foregroundStyle(Color.lumoHaze)
         }
-        .sheet(isPresented: $isShowingManageApps) { ManageAppsView() }
     }
 
     // MARK: - Diagnostics
 
     private var diagnosticsSection: some View {
         Section {
-            Button("Show diagnostics") { isShowingDebug = true }
+            Button("Show diagnostics") { destination = .diagnostics }
                 .foregroundStyle(Color.lumoHaze)
         } footer: {
             // Shipped rather than Debug-gated: when a user reports "it stopped locking", this is
@@ -72,7 +91,6 @@ struct SettingsView: View {
             Text("If something isn't working, this shows Lumo's current state.")
                 .foregroundStyle(Color.lumoHaze.opacity(0.8))
         }
-        .sheet(isPresented: $isShowingDebug) { DebugPanelView() }
     }
 
     // MARK: - Honesty
