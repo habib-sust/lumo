@@ -15,10 +15,12 @@ struct SettingsView: View {
     @State private var releasedCount: Int?
 
     @State private var isShowingDebug = false
+    @State private var isShowingManageApps = false
 
     var body: some View {
         NavigationStack {
             List {
+                appsSection
                 honestySection
                 escapeSection
                 diagnosticsSection
@@ -39,6 +41,23 @@ struct SettingsView: View {
             // are also destroying their progress.
             Text("Every app opens again right away. Your coins and streak are kept, so you can pick up where you left off if you come back.")
         }
+    }
+
+    // MARK: - Apps
+
+    /// The route back to both pickers.
+    ///
+    /// Absent until a device run exposed it: setup ran once, hasCompletedSetup latched, and there
+    /// was no way to change the blocklist again. First item in Settings because it is the thing
+    /// people will come here to do.
+    private var appsSection: some View {
+        Section {
+            Button("Change your apps") { isShowingManageApps = true }
+                .foregroundStyle(Color.lumoFlare)
+        } header: {
+            Text("Apps").foregroundStyle(Color.lumoHaze)
+        }
+        .sheet(isPresented: $isShowingManageApps) { ManageAppsView() }
     }
 
     // MARK: - Diagnostics
@@ -124,10 +143,15 @@ struct SettingsView: View {
         .padding(.vertical, 2)
     }
 
+    @AppStorage("lumo.hasCompletedSetup") private var hasCompletedSetup = false
+
     private func tearDown() {
         // Reports zero rather than failing silently when the App Group is missing — in that case
         // there were no shields to release, so the user is not trapped either way.
         releasedCount = LumoStack.emergencyUnlock(for: .app)?.unlockEverything() ?? 0
         authorization.refresh()
+        // Returning to setup, because "unlock everything" means starting over. Previously this
+        // left the user on a home screen with no route back to either picker.
+        hasCompletedSetup = false
     }
 }
