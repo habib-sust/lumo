@@ -45,13 +45,43 @@ public enum LumoStack {
         return DefaultsStateStore(defaults: defaults, diagnostics: diagnostics(for: process))
     }
 
+    /// Lock patience is per-process, because the cost of giving up differs enormously.
+    ///
+    /// A first device run showed EVERY monitor-extension invocation skipping on contention, which
+    /// meant windows never re-locked — the monitor is the primary re-shield mechanism. The original
+    /// uniform ~50 ms budget was tuned for the shield-render path and silently wrong everywhere else.
+    ///
+    ///   shieldConfig  ~50 ms  — sits on a latency-sensitive render path. If it stalls, the system
+    ///                           substitutes Apple's generic grey shield, so giving up fast and
+    ///                           rendering from last-known state is genuinely better.
+    ///   monitor       ~3 s    — no UI to keep responsive, and skipping means a paid window never
+    ///                           closes. Waiting is strictly better than being wrong.
+    ///   app / action  ~1 s    — a user is waiting, but correctness still outranks a spinner.
     public static func lock(for process: ProcessTag) -> any CrossProcessLocking {
         guard let lockURL else {
             // No shared container means no cross-process contention to manage either, so a
             // no-op lock is honest rather than dangerous — and `stateStore` will already be nil.
             return NoOpLock()
         }
-        return FileLock(url: lockURL, diagnostics: diagnostics(for: process))
+        let attempts: Int
+        let interval: TimeInterval
+        switch process {
+        case .shieldConfig:
+            attempts = 10
+            interval = 0.005
+        case .monitor:
+            attempts = 120
+            interval = 0.025
+        case .app, .shieldAction:
+            attempts = 40
+            interval = 0.025
+        }
+        return FileLock(
+            url: lockURL,
+            attempts: attempts,
+            retryInterval: interval,
+            diagnostics: diagnostics(for: process)
+        )
     }
 
     /// Returns `nil` when the App Group is unavailable, so callers must handle it explicitly

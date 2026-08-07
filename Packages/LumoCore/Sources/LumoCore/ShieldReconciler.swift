@@ -69,7 +69,13 @@ public struct ShieldReconciler: Sendable {
         // Contention must never stall a caller. The shield-render path in particular has to
         // return promptly or the system substitutes Apple's generic grey shield.
         guard let outcome = lock.withLock({ perform(by: process) }) else {
-            diagnostics.record("reconcile.skipped", detail: "lock contended")
+            // Escalated for the monitor specifically. For the config extension a skip is benign —
+            // it renders from last-known state. For the monitor it means a paid window did not
+            // close, which is a correctness failure and must be visible as one.
+            diagnostics.record(
+                process == .monitor ? "reconcile.MISSED" : "reconcile.skipped",
+                detail: "lock contended by=\(process.rawValue)"
+            )
             var out = Outcome()
             out.skippedForLock = true
             return out
