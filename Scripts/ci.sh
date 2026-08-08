@@ -45,10 +45,31 @@ step "build for iOS device" \
 # 4. UI tests. Slow (~2 min) but they cover the seams where every device bug lived — SwiftUI
 #    presentation semantics, navigation state, and whether saving wipes data. Five of the eight
 #    bugs found in the first hardware session were reachable this way.
-step "UI tests (simulator)" \
+# Asserts a COUNT, not just an exit code. `-quiet` hides the results, so a green step could
+# previously mean "13 tests passed" or "0 tests ran and xcodebuild shrugged" — indistinguishable
+# from the outside. A gate you cannot audit is not a gate.
+run_ui_tests() {
+    local log; log="$(mktemp)"
     xcodebuild test -scheme Lumo \
-    -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
-    -only-testing:LumoUITests CODE_SIGNING_ALLOWED=NO -quiet
+        -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
+        -only-testing:LumoUITests CODE_SIGNING_ALLOWED=NO > "$log" 2>&1
+    local status=$?
+    local passed failed
+    passed="$(grep -cE "Test Case .*' passed" "$log" || true)"
+    failed="$(grep -cE "Test Case .*' failed" "$log" || true)"
+    echo "    UI tests: $passed passed, $failed failed"
+    if [ "$status" -ne 0 ] || [ "$failed" -ne 0 ]; then
+        grep -E "error:.*XCTAssert|Test Case .*failed" "$log" | sed 's/^/    /' | head -10
+        rm -f "$log"; return 1
+    fi
+    # The floor that catches a silently-empty run.
+    if [ "$passed" -lt 10 ]; then
+        echo "    only $passed UI tests ran — expected at least 10; the suite may not be executing"
+        rm -f "$log"; return 1
+    fi
+    rm -f "$log"; return 0
+}
+step "UI tests (simulator)" run_ui_tests
 
 # 5. Link-graph and size gates. No-ops until T-008 creates the extension targets.
 DD="$(xcodebuild -showBuildSettings -scheme Lumo -destination 'generic/platform=iOS' 2>/dev/null \
