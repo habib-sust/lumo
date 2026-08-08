@@ -159,7 +159,14 @@ final class FakeStateStore: StateStoring, @unchecked Sendable {
     }
 
     func loadBuckets() throws -> BucketTable { lock.withLock { buckets } }
-    func saveBuckets(_ table: BucketTable) throws { lock.withLock { buckets = table } }
+    func saveBuckets(_ table: BucketTable, essential intent: EssentialIntent) throws {
+        lock.withLock {
+            var outgoing = table
+            // Mirrors the real store, so a test cannot pass where production would not.
+            if intent == .preserve { outgoing.essential = buckets.essential }
+            buckets = outgoing
+        }
+    }
     func loadSchemaVersion() -> Int? { lock.withLock { schemaVersion } }
     func saveSchemaVersion(_ version: Int) throws { lock.withLock { schemaVersion = version } }
 

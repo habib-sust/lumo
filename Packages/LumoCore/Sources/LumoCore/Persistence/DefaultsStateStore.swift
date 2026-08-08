@@ -81,8 +81,29 @@ public struct DefaultsStateStore: StateStoring, @unchecked Sendable {
         decode(BucketTable.self, forKey: StateKey.buckets) ?? .empty
     }
 
-    public func saveBuckets(_ table: BucketTable) throws {
-        defaults.set(try JSONEncoder().encode(table), forKey: StateKey.buckets)
+    /// Merges the persisted essential set back in unless the user explicitly edited it.
+    ///
+    /// This is the enforcement point rather than a convention, so no call site can lose protection
+    /// by passing a table that happens to have an empty `essential`.
+    public func saveBuckets(_ table: BucketTable, essential intent: EssentialIntent) throws {
+        var outgoing = table
+
+        if intent == .preserve {
+            let persisted = (try? loadBuckets())?.essential ?? []
+            if outgoing.essential != persisted {
+                outgoing.essential = persisted
+                // Loud, because reaching here means a caller built a table with the wrong essential
+                // set and only the boundary check saved it.
+                diagnostics.record(
+                    "buckets.essentialPreserved",
+                    detail: "restored \(persisted.count), incoming had \(table.essential.count)"
+                )
+            }
+            // Re-apply the deny-set so a token that is essential can never also occupy a bucket.
+            for token in outgoing.essential { outgoing.markEssential(token) }
+        }
+
+        defaults.set(try JSONEncoder().encode(outgoing), forKey: StateKey.buckets)
     }
 
     // MARK: - Schema

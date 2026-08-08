@@ -42,7 +42,7 @@ struct PersistenceTests {
             categories: [], into: .empty, now: .fixture
         ).table
 
-        try store.saveBuckets(table)
+        try store.saveBuckets(table, essential: .replaceBecauseUserEdited)
         #expect(try store.loadBuckets() == table)
     }
 
@@ -117,7 +117,7 @@ struct PersistenceTests {
         let defaults = makeDefaults()
         let store = DefaultsStateStore(defaults: defaults)
         try store.saveState(SharedState(wallet: Wallet(granted: 5, earned: 5)))
-        try store.saveBuckets(.empty)
+        try store.saveBuckets(.empty, essential: .replaceBecauseUserEdited)
         try store.saveSchemaVersion(1)
 
         store.removeAll()
@@ -310,7 +310,7 @@ struct PersistenceTests {
             applications: [TokenBlob(raw: Data([1])), TokenBlob(raw: Data([2]))],
             categories: [], into: .empty, now: clock.now
         ).table
-        try store.saveBuckets(table)
+        try store.saveBuckets(table, essential: .replaceBecauseUserEdited)
         try store.saveState(SharedState(wallet: Wallet(granted: 100, earned: 0)))
         try store.saveSchemaVersion(SchemaVersion.current)
 
@@ -327,5 +327,116 @@ struct PersistenceTests {
         let second = reconciler.reconcile(by: .monitor)
         #expect(second.isNoOp)
         #expect(shields.calls.count == callsAfterFirst, "steady state must issue zero IPC calls")
+    }
+}
+
+/// T-ESSENTIAL-BOUNDARY-01…05.
+///
+/// The essential set has been silently dropped three times, at three different call sites, each
+/// passing a table whose `essential` happened to be empty. Three failures at three sites is a
+/// missing constraint rather than a run of bad luck — so the intent is now a protocol requirement
+/// and the store enforces it. These tests are the enforcement's proof.
+@Suite("Essential-apps save boundary")
+struct EssentialBoundaryTests {
+
+    private func makeStore(_ diag: RecordingDiagnostics = RecordingDiagnostics())
+        -> (DefaultsStateStore, UserDefaults, RecordingDiagnostics) {
+        let d = UserDefaults(suiteName: "lumo.boundary.\(UUID().uuidString)")!
+        for key in StateKey.all { d.removeObject(forKey: key) }
+        return (DefaultsStateStore(defaults: d, diagnostics: diag), d, diag)
+    }
+
+    private func table(essential: Int, apps: Int) throws -> BucketTable {
+        var t = BucketTable.empty
+        t.essential = Set((0..<essential).map { TokenBlob(raw: Data([0xE0, UInt8($0)])) })
+        if apps > 0 {
+            t = try BucketPartitioner.commit(
+                applications: Set((0..<apps).map { TokenBlob(raw: Data([0xB0, UInt8($0)])) }),
+                categories: [], into: t, now: .fixture
+            ).table
+        }
+        return t
+    }
+
+    @Test(".preserve restores the persisted essential set even when the caller drops it")
+    func preserveRestoresDroppedEssential() throws {
+        // The EXACT shape of all three production bugs: a caller builds a table from an empty
+        // in-memory selection and saves it.
+        let (store, _, diag) = makeStore()
+        try store.saveBuckets(try table(essential: 3, apps: 2), essential: .replaceBecauseUserEdited)
+        #expect(try store.loadBuckets().essential.count == 3)
+
+        var wiped = try store.loadBuckets()
+        wiped.essential = []
+        try store.saveBuckets(wiped, essential: .preserve)
+
+        #expect(
+            try store.loadBuckets().essential.count == 3,
+            "protection must survive a caller that forgot it — this is the physical-harm path"
+        )
+        #expect(diag.contains("buckets.essentialPreserved"), "and it must be recorded loudly")
+    }
+
+    @Test(".replaceBecauseUserEdited honours a deliberate clear")
+    func userEditCanClearProtection() throws {
+        // Removing protection on purpose is the user's to choose; the guard must not become a
+        // cage that stops them.
+        let (store, _, _) = makeStore()
+        try store.saveBuckets(try table(essential: 2, apps: 1), essential: .replaceBecauseUserEdited)
+
+        var cleared = try store.loadBuckets()
+        cleared.essential = []
+        try store.saveBuckets(cleared, essential: .replaceBecauseUserEdited)
+
+        #expect(try store.loadBuckets().essential.isEmpty)
+    }
+
+    @Test(".preserve still saves everything else")
+    func preserveDoesNotBlockOtherChanges() throws {
+        // The guard protects one field. Editing the blocklist while preserving protection is the
+        // normal case and must work.
+        let (store, _, _) = makeStore()
+        try store.saveBuckets(try table(essential: 2, apps: 1), essential: .replaceBecauseUserEdited)
+
+        let expanded = try BucketPartitioner.commit(
+            applications: Set((0..<4).map { TokenBlob(raw: Data([0xB0, UInt8($0)])) }),
+            categories: [], into: try store.loadBuckets(), now: .fixture
+        ).table
+        var incoming = expanded
+        incoming.essential = []
+        try store.saveBuckets(incoming, essential: .preserve)
+
+        let loaded = try store.loadBuckets()
+        #expect(loaded.applicationBucketCount == 4, "the blocklist edit must land")
+        #expect(loaded.essential.count == 2, "while protection is preserved")
+    }
+
+    @Test("A preserved essential token is never left occupying a bucket")
+    func preserveReappliesTheDenySet() throws {
+        // Restoring the set is not enough on its own: if the incoming table shielded a token that
+        // is essential, it has to be evicted in the same write.
+        let (store, _, _) = makeStore()
+        let protected = TokenBlob(raw: Data([0xE0, 0x00]))
+        var initial = BucketTable.empty
+        initial.essential = [protected]
+        try store.saveBuckets(initial, essential: .replaceBecauseUserEdited)
+
+        // A caller now tries to shield that very token, with essential blanked.
+        var bad = try BucketPartitioner.commit(
+            applications: [protected], categories: [], into: .empty, now: .fixture).table
+        bad.essential = []
+        try store.saveBuckets(bad, essential: .preserve)
+
+        let loaded = try store.loadBuckets()
+        #expect(loaded.essential.contains(protected))
+        #expect(loaded.bucket(for: protected) == nil, "an essential token must not occupy a bucket")
+        #expect(loaded.shieldableBuckets.isEmpty)
+    }
+
+    @Test("A first save with .preserve and nothing persisted is not an error")
+    func preserveOnEmptyStoreIsFine() throws {
+        let (store, _, _) = makeStore()
+        try store.saveBuckets(try table(essential: 0, apps: 2), essential: .preserve)
+        #expect(try store.loadBuckets().applicationBucketCount == 2)
     }
 }

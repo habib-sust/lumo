@@ -160,7 +160,7 @@ struct ReconcilerTests {
         // it has to become reachable on the very next reconcile, with no spend required.
         var table = rig.state.currentBuckets
         table.essential = [token(1)]
-        try rig.state.saveBuckets(table)
+        try rig.state.saveBuckets(table, essential: .replaceBecauseUserEdited)
 
         let out = rig.reconciler.reconcile(by: .app)
 
@@ -173,7 +173,7 @@ struct ReconcilerTests {
         let rig = try makeRig()
         var table = rig.state.currentBuckets
         table.essential = [token(0)]
-        try rig.state.saveBuckets(table)
+        try rig.state.saveBuckets(table, essential: .replaceBecauseUserEdited)
 
         let before = rig.state.currentState.wallet
         #expect(throws: SpendCoordinator.SpendError.bucketIsEssential(BucketID(slot: 0))) {
@@ -193,7 +193,7 @@ struct ReconcilerTests {
             applications: [token(0), token(1)], categories: [],
             into: rig.state.currentBuckets, now: rig.clock.now
         ).table
-        try rig.state.saveBuckets(reduced)
+        try rig.state.saveBuckets(reduced, essential: .replaceBecauseUserEdited)
 
         let out = rig.reconciler.reconcile(by: .app)
 

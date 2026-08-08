@@ -72,9 +72,39 @@ public protocol StateStoring: Sendable {
     func loadState() throws -> SharedState
     func saveState(_ state: SharedState) throws
     func loadBuckets() throws -> BucketTable
-    func saveBuckets(_ table: BucketTable) throws
+
+    /// Persists the bucket table. **The essential-apps intent is mandatory.**
+    ///
+    /// Deliberately not defaulted, and deliberately not inferable. The essential set is the one
+    /// piece of state in Lumo whose loss has a physical-harm path — the driving evidence is a
+    /// competitor's reviewer writing *"I am a type 1 diabetic and it would block my pump… I can die
+    /// from that."* It has now been silently dropped **three times**, by three different call sites,
+    /// each of which passed a table whose `essential` happened to be empty:
+    ///
+    ///   1. skipping the blocklist step never committed at all
+    ///   2. editing the blocklist replaced essential with the empty in-memory selection
+    ///   3. the same wipe again via `commitEssentialOnly`, which the first fix missed
+    ///
+    /// Three failures at three call sites is not a run of bad luck, it is a missing constraint. So
+    /// the decision moves into the type system: a caller cannot save without saying which it means,
+    /// and `.preserve` makes accidental loss impossible rather than merely unlikely.
+    func saveBuckets(_ table: BucketTable, essential intent: EssentialIntent) throws
+
     func loadSchemaVersion() -> Int?
     func saveSchemaVersion(_ version: Int) throws
+}
+
+/// What a caller means about the essential-apps set when saving a bucket table.
+public enum EssentialIntent: Sendable, Equatable {
+    /// Keep whatever is already persisted, ignoring the incoming set.
+    ///
+    /// The right answer for every path that is not the user editing the protected list — which is
+    /// almost all of them.
+    case preserve
+
+    /// The user explicitly edited the protected list. Replacement is honoured, including clearing
+    /// it, because deliberately removing protection is theirs to choose.
+    case replaceBecauseUserEdited
 }
 
 // MARK: - Mutual exclusion

@@ -69,7 +69,7 @@ enum UITestSupport {
             state.wallet.issueGrant(seedCoins)
         }
 
-        try? store.saveBuckets(table)
+        try? store.saveBuckets(table, essential: .replaceBecauseUserEdited)
         try? store.saveState(state)
     }
 

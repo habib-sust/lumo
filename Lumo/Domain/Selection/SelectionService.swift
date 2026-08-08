@@ -152,7 +152,7 @@ final class SelectionService {
                 into: table,
                 now: Date()
             )
-            try store.saveBuckets(outcome.table)
+            try store.saveBuckets(outcome.table, essential: didEditEssential ? .replaceBecauseUserEdited : .preserve)
             lastOutcome = outcome
 
             // A slot that was just added or removed cannot keep a window bought for whatever used
