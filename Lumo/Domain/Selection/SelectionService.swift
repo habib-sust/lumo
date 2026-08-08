@@ -103,7 +103,7 @@ final class SelectionService {
         }
         table.essential = blobs(from: essentialSelection)
         for token in table.essential { table.markEssential(token) }
-        guard (try? store.saveBuckets(table)) != nil else {
+        guard (try? store.saveBuckets(table, essential: .replaceBecauseUserEdited)) != nil else {
             commitError = .storeUnavailable
             return false
         }
