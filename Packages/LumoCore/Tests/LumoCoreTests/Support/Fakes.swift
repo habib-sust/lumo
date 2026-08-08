@@ -204,3 +204,41 @@ final class RecordingDiagnostics: Diagnosing, @unchecked Sendable {
         lock.withLock { events.contains { $0.event == event } }
     }
 }
+
+
+// MARK: - Coin ledger
+
+final class FakeLedgerStore: CoinLedgerStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var entries: [LedgerEntry] = []
+
+    /// Set to simulate a store that cannot be written, so the retry path is testable.
+    var appendError: Error?
+    var readError: Error?
+    private(set) var appendCallCount = 0
+
+    init(entries: [LedgerEntry] = []) { self.entries = entries }
+
+    func allEntries() throws -> [LedgerEntry] {
+        try lock.withLock {
+            if let readError { throw readError }
+            return entries.sorted { $0.at < $1.at }
+        }
+    }
+
+    func append(_ newEntries: [LedgerEntry]) throws {
+        try lock.withLock {
+            if let appendError { throw appendError }
+            appendCallCount += 1
+            entries.append(contentsOf: newEntries)
+        }
+    }
+
+    func hasEntries(forIntent intentID: UUID) throws -> Bool {
+        lock.withLock { entries.contains { $0.intentID == intentID } }
+    }
+
+    func rows(of kind: LedgerKind) -> [LedgerEntry] {
+        lock.withLock { entries.filter { $0.kind == kind } }
+    }
+}

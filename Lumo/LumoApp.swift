@@ -58,6 +58,9 @@ struct LumoApp: App {
             .environment(selection)
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
+                // Ledger reconciliation runs after the shield reconcile, never before: shielding
+                // correctness must not wait on a store that is allowed to be unavailable.
+                LumoPersistence.reconcileLedger()
                 // Authorization can be revoked in Settings without Lumo running, which unshields
                 // everything at once — so it is re-read on every activation rather than trusted
                 // from launch. Windows can also expire while the app is suspended.
