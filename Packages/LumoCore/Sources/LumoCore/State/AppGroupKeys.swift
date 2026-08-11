@@ -50,10 +50,19 @@ public enum StateKey {
     /// needs to decode is the same reason bucket tokens live in their own key.
     public static let harm = "lumo.harm"
 
+    /// The habit timer currently running, if any. **App-only**, and deliberately not in
+    /// `lumo.state`: no extension has any use for it, and the hot blob is decoded on every monitor
+    /// callback under a 6 MB ceiling.
+    ///
+    /// Persisted rather than held in memory because a timer that dies with the app is a timer that
+    /// loses the user's session — and the whole point of the pause feature is that life interrupts.
+    public static let timer = "lumo.timer"
+
     /// Everything Lumo owns, for teardown. Used by "Unlock everything and remove Lumo",
     /// which must always work and must never require a Screen Time passcode.
     public static let all: [String] = [
         schemaVersion, state, stateBackup, buckets, policy, renderProvenance, diagnostics, harm,
+        timer,
     ]
 }
 

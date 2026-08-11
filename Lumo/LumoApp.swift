@@ -12,6 +12,7 @@ struct LumoApp: App {
 
     @State private var authorization = AuthorizationService()
     @State private var selection = SelectionService()
+    @State private var habits = HabitService()
     @AppStorage("lumo.hasCompletedSetup") private var hasCompletedSetup = false
 
     @Environment(\.scenePhase) private var scenePhase
@@ -37,6 +38,9 @@ struct LumoApp: App {
 
         LumoStack.startUp()
 
+        // After startUp, because it needs the model container open. UI-test builds only.
+        MainActor.assumeIsolated { UITestSupport.resetPersistence() }
+
         #if DEBUG
         // Printed to stdout, not os_log, specifically so `devicectl --console` can capture it.
         // Family Controls cannot run in the Simulator, so this is the only way to read real
@@ -56,11 +60,15 @@ struct LumoApp: App {
             }
             .environment(authorization)
             .environment(selection)
+            .environment(habits)
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 // Ledger reconciliation runs after the shield reconcile, never before: shielding
                 // correctness must not wait on a store that is allowed to be unavailable.
                 LumoPersistence.reconcileLedger()
+                // Before the hearth reads the wallet, so a new week's allowance is visible on the
+                // launch that starts it rather than the one after.
+                LumoPersistence.issueWeeklyGrantIfNeeded()
                 // Authorization can be revoked in Settings without Lumo running, which unshields
                 // everything at once — so it is re-read on every activation rather than trusted
                 // from launch. Windows can also expire while the app is suspended.
@@ -73,3 +81,4 @@ struct LumoApp: App {
         }
     }
 }
+    

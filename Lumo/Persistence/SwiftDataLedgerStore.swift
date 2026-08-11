@@ -228,3 +228,63 @@ extension LumoPersistence {
         )
     }
 }
+
+// MARK: - The weekly grant
+
+@MainActor
+extension LumoPersistence {
+
+    /// Issues the weekly house allowance if a new week has started.
+    ///
+    /// **This had no caller until now**, which meant the granted half of the wallet was always
+    /// zero and the economy had no floor. The grant is what makes "never trap the user" true in the
+    /// economy rather than only in the teardown button: there is always some way out of a shield,
+    /// even in a week where nothing got done.
+    ///
+    /// Rolling a week also EXPIRES the unspent remainder. That is the loss-framed half of ACTIVE
+    /// REWARD — the only design in the literature whose effect survived after incentives stopped —
+    /// and it is only defensible because it touches house money exclusively. Earned coins are never
+    /// expired, never deducted, never clawed back.
+    @discardableResult
+    static func issueWeeklyGrantIfNeeded(now: Date = Date()) -> GrantCycle.Outcome? {
+        guard let store = LumoStack.stateStore(for: .app) else { return nil }
+        let policy = store.loadPolicy()
+
+        var outcome: GrantCycle.Outcome?
+        LumoStack.lock(for: .app).withLock {
+            guard var state = try? store.loadState() else { return }
+            let result = GrantCycle.issueIfNeeded(state: &state, policy: policy, now: now)
+            // A no-op on all but one launch a week, so nothing is written on the other six days.
+            guard result.issued > 0 || result.expired > 0 else {
+                outcome = result
+                return
+            }
+            try? store.saveState(state)
+
+            var rows: [LedgerEntry] = []
+            if result.expired > 0 {
+                rows.append(LedgerEntry(
+                    at: now, kind: .grantExpired, grantedDelta: -result.expired,
+                    note: "unspent allowance"))
+            }
+            if result.issued > 0 {
+                rows.append(LedgerEntry(
+                    at: now, kind: .grantIssued, grantedDelta: result.issued, note: "weekly"))
+            }
+            if let ledger = ledgerStore(), !rows.isEmpty { try? ledger.append(rows) }
+
+            // Forfeiture is a harm signal, not a revenue one: most of the allowance expiring unused
+            // means the economy is unreachable for this user and earning is too slow.
+            if result.expired > 0 {
+                var metrics = store.loadHarm()
+                metrics.grantForfeited += result.expired
+                try? store.saveHarm(metrics)
+            }
+
+            LumoStackDiagnostics.record(
+                "grant.cycled", detail: "issued \(result.issued) expired \(result.expired)")
+            outcome = result
+        }
+        return outcome
+    }
+}

@@ -99,6 +99,14 @@ public struct SharedState: Codable, Sendable, Equatable {
     /// is decoded on every extension callback under a 6 MB ceiling.
     public var baseline: BaselineCalibration
 
+    /// Day-streak state.
+    ///
+    /// Lives in this blob rather than a side key because awarding coins and incrementing the streak
+    /// are ONE transaction: a tear between them either pays for a day that did not count toward the
+    /// streak, or counts a day the user was not paid for. Both look like theft from where the user
+    /// is sitting.
+    public var streak: Streak
+
     public var flags: Flags
     public var lastReconcileAt: Date?
     public var lastReconcileBy: ProcessTag?
@@ -161,6 +169,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         mirror: ShieldMirror = .empty,
         emergency: EmergencyLog = .empty,
         baseline: BaselineCalibration = .empty,
+        streak: Streak = .empty,
         flags: Flags = [],
         lastReconcileAt: Date? = nil,
         lastReconcileBy: ProcessTag? = nil,
@@ -174,6 +183,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         self.mirror = mirror
         self.emergency = emergency
         self.baseline = baseline
+        self.streak = streak
         self.flags = flags
         self.lastReconcileAt = lastReconcileAt
         self.lastReconcileBy = lastReconcileBy
@@ -201,6 +211,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         mirror = try c.decodeIfPresent(ShieldMirror.self, forKey: .mirror) ?? .empty
         emergency = try c.decodeIfPresent(EmergencyLog.self, forKey: .emergency) ?? .empty
         baseline = try c.decodeIfPresent(BaselineCalibration.self, forKey: .baseline) ?? .empty
+        streak = try c.decodeIfPresent(Streak.self, forKey: .streak) ?? .empty
         flags = try c.decodeIfPresent(Flags.self, forKey: .flags) ?? []
         lastReconcileAt = try c.decodeIfPresent(Date.self, forKey: .lastReconcileAt)
         lastReconcileBy = try c.decodeIfPresent(ProcessTag.self, forKey: .lastReconcileBy)

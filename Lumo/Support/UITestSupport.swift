@@ -1,6 +1,7 @@
 import Foundation
 import LumoCore
 import LumoShieldKit
+import SwiftData
 
 /// Launch-argument hooks for UI tests.
 ///
@@ -63,6 +64,13 @@ enum UITestSupport {
                 table = outcome.table
             }
         }
+        // Stamp the current week ALWAYS, not only when seeding coins.
+        //
+        // The weekly grant fires whenever `weekStart` is stale, and on a reset install it always is
+        // — so it expired the seeded balance and replaced it with the full 140. A test that asked
+        // for 8 coins silently got 140, and one that asked for none got an affordable ladder. The
+        // grant is right; the seed just has to look like a week already in progress.
+        state.week.weekStart = GrantCycle.weekStart(for: Date())
         if seedCoins > 0 {
             // Granted, never earned — the invariant holds even in a test hook, because `earned` is
             // the pot nothing may inflate.
@@ -71,6 +79,30 @@ enum UITestSupport {
 
         try? store.saveBuckets(table, essential: .replaceBecauseUserEdited)
         try? store.saveState(state)
+    }
+
+    /// Clears SwiftData too.
+    ///
+    /// Separate from `apply()` because it must run AFTER the model container is open, whereas
+    /// `apply()` runs before any UI so the seeded state is migrated and reconciled like any other.
+    ///
+    /// Needed because `store.removeAll()` clears the App Group defaults and nothing else — which is
+    /// correct for the product (teardown deliberately keeps the ledger and the user's history) and
+    /// wrong for tests, where habits leaking from one case into the next made the empty-state path
+    /// unreachable.
+    @MainActor
+    static func resetPersistence() {
+        guard isActive, shouldResetState else { return }
+        // Opens the container first. It is created lazily by `ledgerStore()`, so at this point in
+        // launch it is still nil — the first version of this guard therefore returned early every
+        // single time and reset nothing, while looking exactly like a reset that found nothing.
+        LumoPersistence.start()
+        guard let container = LumoPersistence.container else { return }
+        let context = ModelContext(container)
+        try? context.delete(model: HabitRecord.self)
+        try? context.delete(model: SessionRecord.self)
+        try? context.delete(model: LedgerEntryRecord.self)
+        try? context.save()
     }
 
     /// `FA CE` prefix so a synthetic token is recognisable at a glance in a state dump. If one ever

@@ -273,8 +273,18 @@ struct CodecTests {
             origin: .purchased, intentID: intentID
         )]
 
+        // A realistic steady state also has a streak in it, which is what the user has actually
+        // been doing all week. Leaving it at .empty would measure a state no returning user is in.
+        state.streak.recordCompletion(on: .fixture)
+
         let size = try encoder.encode(state).count
-        #expect(size < 1024, "steady-state SharedState encoded to \(size)B, expected under 1 KB")
+        // Raised from 1 KB to 1.5 KB when `streak` joined the blob: six fields, ~110 bytes, and
+        // the alternative was a side key that could tear away from the wallet credit it belongs to.
+        // The ceiling is a growth alarm, not a platform limit — the real one is 6 MB, and the
+        // encoding stays verbose on purpose because a readable on-device JSON dump is frequently
+        // the only diagnostic available. Anything approaching this again deserves the same argument
+        // rather than another bump.
+        #expect(size < 1536, "steady-state SharedState encoded to \(size)B, expected under 1.5 KB")
     }
 
     @Test("The journal cap is enforceable and small enough to bound the blob")

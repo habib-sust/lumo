@@ -15,17 +15,25 @@ struct HearthView: View {
     @Environment(AuthorizationService.self) private var authorization
     @Environment(\.scenePhase) private var scenePhase
 
+    @Environment(HabitService.self) private var habits
+
     @State private var model = HearthModel()
     @State private var route: Route?
 
     private enum Route: Identifiable, Hashable {
         case settings
         case spend(BucketID)
+        case habits
+        case running
+        case award
 
         var id: String {
             switch self {
             case .settings: "settings"
             case let .spend(bucket): "spend-\(bucket.slot)"
+            case .habits: "habits"
+            case .running: "running"
+            case .award: "award"
             }
         }
     }
@@ -41,6 +49,7 @@ struct HearthView: View {
                 Spacer(minLength: LumoSpace.loose)
                 VectorBuddy(mood: model.snapshot.mood)
                 balance
+                earnRow
                 Spacer(minLength: LumoSpace.loose)
                 openRow
                 lockedRow
@@ -48,9 +57,13 @@ struct HearthView: View {
             .padding(.horizontal, LumoSpace.margin)
             .padding(.vertical, LumoSpace.loose)
         }
-        .onAppear { model.refresh() }
+        .onAppear {
+            habits.load()
+            model.refresh()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            habits.load()
             model.refresh()
         }
         // Sleeps until the soonest window is due, rather than polling.
@@ -80,7 +93,31 @@ struct HearthView: View {
                     model.flash()
                     model.refresh()
                 }
+            case .habits:
+                HabitsView()
+            case .running:
+                RunningTimerView()
+            case .award:
+                if let award = habits.lastAward {
+                    AwardSheet(award: award)
+                } else {
+                    // Only reachable if the award was cleared between routing and presenting.
+                    // Showing nothing beats showing a zero the user did not earn.
+                    Color.lumoInk
+                }
             }
+        }
+        // The award lands after a sheet dismisses, so it is routed on change rather than presented
+        // from inside the sheet that produced it — stacking a second sheet on a dismissing one is
+        // how the self-dismissing-sheet bug happened in the first place.
+        .onChange(of: habits.lastAward) { _, award in
+            guard award != nil else { return }
+            model.flash()
+            model.refresh()
+            route = .award
+        }
+        .onChange(of: route) { _, value in
+            if value == nil { habits.clearLastAward() }
         }
     }
 
@@ -146,6 +183,46 @@ struct HearthView: View {
             return "All \(wallet.earned) of these you earned."
         }
         return "\(wallet.earned) earned, \(wallet.granted) from this week's allowance."
+    }
+
+    /// The route to earning, and the running session if there is one.
+    ///
+    /// On the hearth rather than behind a tab, because a locked app with no visible way to earn is
+    /// the screen that makes an app feel like a punishment.
+    @ViewBuilder
+    private var earnRow: some View {
+        if let timer = habits.timer, let habit = habits.runningHabit {
+            Button {
+                route = .running
+            } label: {
+                HStack(spacing: LumoSpace.tight) {
+                    Image(systemName: timer.isPaused ? "pause.circle.fill" : "timer")
+                    Text(timer.isPaused ? "\(habit.name) — paused" : habit.name)
+                }
+                .font(.lumoCallout)
+                .foregroundStyle(Color.lumoFlare)
+                .padding(.vertical, LumoSpace.tight)
+                .padding(.horizontal, LumoSpace.regular)
+                .background(Color.lumoSoot)
+                .clipShape(Capsule())
+            }
+            .accessibilityIdentifier("home.running")
+            .padding(.top, LumoSpace.regular)
+        } else {
+            Button {
+                route = .habits
+            } label: {
+                Text("Do something")
+                    .font(.lumoCallout)
+                    .foregroundStyle(Color.lumoInk)
+                    .padding(.vertical, LumoSpace.tight)
+                    .padding(.horizontal, LumoSpace.loose)
+                    .background(Color.lumoFlare)
+                    .clipShape(Capsule())
+            }
+            .accessibilityIdentifier("home.earn")
+            .padding(.top, LumoSpace.regular)
+        }
     }
 
     // MARK: - Apps

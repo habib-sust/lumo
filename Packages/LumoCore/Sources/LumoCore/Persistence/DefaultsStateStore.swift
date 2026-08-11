@@ -126,6 +126,29 @@ public struct DefaultsStateStore: StateStoring, PolicyStoring, HarmStoring, @unc
         defaults.set(try JSONEncoder().encode(policy), forKey: StateKey.policy)
     }
 
+    // MARK: - Running timer
+
+    /// The in-flight habit timer, or `nil` when nothing is running.
+    ///
+    /// Corruption clears it rather than throwing. A stuck undecodable timer would block the user
+    /// from ever starting another session, which is a worse outcome than losing one.
+    public func loadTimer() -> HabitTimer? {
+        guard let data = defaults.data(forKey: StateKey.timer) else { return nil }
+        guard let value = try? JSONDecoder().decode(HabitTimer.self, from: data) else {
+            diagnostics.record("timer.corrupt", detail: StateKey.timer)
+            return nil
+        }
+        return value
+    }
+
+    public func saveTimer(_ timer: HabitTimer?) throws {
+        guard let timer else {
+            defaults.removeObject(forKey: StateKey.timer)
+            return
+        }
+        defaults.set(try JSONEncoder().encode(timer), forKey: StateKey.timer)
+    }
+
     // MARK: - Harm telemetry
 
     /// No recovery ladder and no throw. Losing a week of instrumentation is a nuisance; refusing to
