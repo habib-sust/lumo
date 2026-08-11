@@ -164,3 +164,67 @@ extension LumoPersistence {
         } ?? nil
     }
 }
+
+// MARK: - Pricing personalisation
+
+@MainActor
+extension LumoPersistence {
+
+    /// Reprices the economy once the baseline ladder has enough to say.
+    ///
+    /// Lives here rather than in a view because it needs both halves of the ratio, and they come
+    /// from different tiers: the scroll side is inferred from threshold firings in shared state,
+    /// while the habit side is measured directly from completed sessions in SwiftData. Only the app
+    /// can see both.
+    ///
+    /// Runs on foreground, and is a no-op on almost every run — `PolicyPersonalizer` compares the
+    /// price-setting fields rather than the whole value, so a policy that has already absorbed this
+    /// measurement is left alone instead of being rewritten (and its fingerprint churned) on every
+    /// launch. The extensions validate against that fingerprint.
+    @discardableResult
+    static func personalisePricing(now: Date = Date()) -> PolicyPersonalizer.Outcome? {
+        guard let store = LumoStack.stateStore(for: .app),
+              let state = try? store.loadState()
+        else { return nil }
+
+        let calibration = state.baseline
+        guard calibration.isReady else {
+            return .stillCalibrating(daysRemaining: calibration.daysRemaining)
+        }
+
+        let outcome = PolicyPersonalizer.evaluate(
+            calibration: calibration,
+            current: store.loadPolicy(),
+            habitMinutesPerDay: habitMinutesPerDay(over: calibration.observedDays, now: now),
+            now: now
+        )
+
+        if case let .repriced(policy) = outcome {
+            try? store.savePolicy(policy)
+            LumoStackDiagnostics.record(
+                "policy.personalised",
+                detail: "scroll \(Int(policy.baseline.scrollMinutesPerDay))m habit \(Int(policy.baseline.habitMinutesPerDay))m ratio \(String(format: "%.2f", policy.requiredRatio))"
+            )
+        }
+        return outcome
+    }
+
+    /// Mean completed-habit minutes per day over the calibration window.
+    ///
+    /// Only sessions inside the window count. Including older history would pair a habit average
+    /// from one period with a scroll measurement from another, and the ratio between two different
+    /// weeks is not a ratio of anything.
+    private static func habitMinutesPerDay(over days: Int, now: Date) -> Double {
+        guard days > 0, let container else { return 0 }
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<SessionRecord>(
+            predicate: #Predicate { $0.endedAt >= cutoff }
+        )
+        guard let sessions = try? context.fetch(descriptor) else { return 0 }
+        return PolicyPersonalizer.habitMinutesPerDay(
+            completedSessionMinutes: sessions.map { $0.activeSeconds / 60 },
+            overDays: days
+        )
+    }
+}

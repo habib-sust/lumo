@@ -45,6 +45,15 @@ public enum LumoStack {
         return DefaultsStateStore(defaults: defaults, diagnostics: diagnostics(for: process))
     }
 
+    /// The pricing policy every process must agree on.
+    ///
+    /// Falls back to the default when the App Group is unavailable, which is the same value the
+    /// store itself falls back to — so the three processes still agree in the degraded case rather
+    /// than each inventing something different.
+    public static func policy(for process: ProcessTag) -> Policy {
+        stateStore(for: process)?.loadPolicy() ?? .default
+    }
+
     /// Lock patience is per-process, because the cost of giving up differs enormously.
     ///
     /// A first device run showed EVERY monitor-extension invocation skipping on contention, which

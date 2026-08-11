@@ -84,7 +84,11 @@ final class LumoShieldAction: ShieldActionDelegate {
         // POSITION, not an identity, so the config extension rendered a list and this process
         // received only an index. Two processes evaluating the same pure function cannot disagree;
         // a written handshake between them would be a race that silently sells the wrong tier.
-        let policy = Policy.default
+        // Read, never defaulted: the app personalises prices off the measured baseline, and an
+        // extension falling back to Policy.default here would resolve the tapped index against a
+        // DIFFERENT ladder than the one the user saw — then fail the fingerprint check and refuse
+        // a spend the user correctly asked for.
+        let policy = LumoStack.policy(for: .shieldAction)
         guard let offer = TierLadder.offer(
             atSubmenuIndex: tierIndex,
             bucket: bucket.id,

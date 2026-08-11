@@ -49,7 +49,7 @@ struct LumoApp: App {
         WindowGroup {
             Group {
                 if hasCompletedSetup || UITestSupport.shouldSkipOnboarding {
-                    HomePlaceholder()
+                    HearthView()
                 } else {
                     OnboardingFlow { hasCompletedSetup = true }
                 }
@@ -65,52 +65,11 @@ struct LumoApp: App {
                 // everything at once — so it is re-read on every activation rather than trusted
                 // from launch. Windows can also expire while the app is suspended.
                 LumoStack.reconcileNow(.app)
+                // Last, and deliberately so. Repricing reads both tiers and is allowed to be a
+                // no-op or to fail; nothing about shielding correctness may wait on it.
+                LumoPersistence.personalisePricing()
                 authorization.refresh()
             }
-        }
-    }
-}
-
-/// Stands in for the hearth until Phase 4 (T-082).
-private struct HomePlaceholder: View {
-    @Environment(AuthorizationService.self) private var authorization
-    @State private var isShowingSettings = false
-
-    var body: some View {
-        ZStack {
-            Color.lumoInk.ignoresSafeArea()
-            VStack(spacing: 14) {
-                Image(systemName: "flame.fill")
-                    .font(.system(size: 44))
-                    .foregroundStyle(Color.lumoEmber)
-                Text("Lumo")
-                    .font(.largeTitle.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text("Light comes first.")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.lumoHaze)
-
-                if let guidance = authorization.guidance {
-                    // Surfaced on the home screen too, not only during setup: if access is revoked
-                    // later, every locked app silently reopens, and the user deserves to know why
-                    // rather than assume Lumo is broken.
-                    Text(guidance.title)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(Color.lumoEmber)
-                        .padding(.top, 8)
-                }
-
-                // Reachable from the first screen, not buried. The escape hatch is worthless if
-                // a frustrated user cannot find it.
-                Button("Settings") { isShowingSettings = true }
-                    .accessibilityIdentifier("home.settings")
-                    .font(.callout)
-                    .foregroundStyle(Color.lumoHaze)
-                    .padding(.top, 24)
-            }
-        }
-        .sheet(isPresented: $isShowingSettings) {
-            SettingsView()
         }
     }
 }

@@ -43,8 +43,9 @@ final class SettingsUITests: LumoUITestCase {
         XCTAssertTrue(app.buttons[LumoID.managePickEssential].waitForExistence(timeout: 5))
         app.buttons[LumoID.manageDone].tap()
 
-        let diagnostics = app.buttons[LumoID.settingsShowDiagnostics]
-        XCTAssertTrue(diagnostics.waitForExistence(timeout: 5), "returned to Settings")
+        // Scrolls if needed: the diagnostics row is the last section, so whether it is on
+        // screen depends on the simulator's height.
+        let diagnostics = button(LumoID.settingsShowDiagnostics)
         diagnostics.tap()
         XCTAssertTrue(
             app.staticTexts["App Group"].waitForExistence(timeout: 5),
@@ -106,7 +107,7 @@ final class SettingsUITests: LumoUITestCase {
         // Also proves the seam itself works, so the tests below can trust their own setup.
         launchApp(essential: 3, blocked: 2, coins: 100)
         openSettings()
-        app.buttons[LumoID.settingsShowDiagnostics].tap()
+        button(LumoID.settingsShowDiagnostics).tap()
 
         XCTAssertTrue(app.staticTexts["App Group"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Buckets"].exists)

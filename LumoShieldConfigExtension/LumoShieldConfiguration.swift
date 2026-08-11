@@ -69,7 +69,8 @@ final class LumoShieldConfiguration: ShieldConfigurationDataSource {
               let bucket = table.bucket(for: token)
         else { return placeholder }
 
-        let policy = Policy.default
+        // Same policy the action extension will resolve the tap against. See the note there.
+        let policy = LumoStack.policy(for: .shieldConfig)
         let offers = TierLadder.affordableTiers(
             bucket: bucket.id, wallet: observation.wallet, policy: policy)
 

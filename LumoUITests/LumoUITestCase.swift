@@ -74,6 +74,38 @@ class LumoUITestCase: XCTestCase {
         button.tap()
     }
 
+    /// Waits for an element, scrolling the screen if it has not been laid out yet.
+    ///
+    /// A `List` is a lazy collection view: rows below the fold are not merely off-screen, they do
+    /// not exist in the accessibility tree at all. So a plain `waitForExistence` on a lower row
+    /// passes on a tall simulator and fails on a short one — which is exactly what happened here,
+    /// with the same commit green on iPhone 17 and red on iPhone 17 Pro. A test whose result
+    /// depends on the device it ran on is not testing what it claims to, and the failure it
+    /// produces names the wrong thing.
+    @discardableResult
+    func waitScrolling(for element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+        if element.waitForExistence(timeout: timeout) { return true }
+        for _ in 0..<4 {
+            app.swipeUp()
+            if element.waitForExistence(timeout: 1) { return true }
+        }
+        return false
+    }
+
+    /// Finds a button, scrolling to it if necessary. Fails the test by name if it never appears.
+    @discardableResult
+    func button(
+        _ identifier: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        let element = app.buttons[identifier]
+        if !waitScrolling(for: element) {
+            XCTFail("\(identifier) not found, even after scrolling", file: file, line: line)
+        }
+        return element
+    }
+
     /// Taps a row and asserts the sheet is *still* there a moment later.
     ///
     /// The delay is the entire point. A sheet attached to an unstable host (a `List` Section, for
@@ -85,8 +117,8 @@ class LumoUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let row = app.buttons[identifier]
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "\(identifier) not found", file: file, line: line)
+        let row = button(identifier, file: file, line: line)
+        XCTAssertTrue(row.exists, "\(identifier) not found", file: file, line: line)
         row.tap()
 
         XCTAssertTrue(

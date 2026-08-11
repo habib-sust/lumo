@@ -6,7 +6,7 @@ import Foundation
 /// keeping it here means the **corruption-recovery ladder is testable on macOS**. That ladder
 /// is the code protecting the user's coin balance, so it is exactly what should not be
 /// device-only. LumoShieldKit's job is reduced to naming the App Group suite.
-public struct DefaultsStateStore: StateStoring, HarmStoring, @unchecked Sendable {
+public struct DefaultsStateStore: StateStoring, PolicyStoring, HarmStoring, @unchecked Sendable {
 
     // `@unchecked Sendable` because `UserDefaults`' Sendable conformance is explicitly
     // unavailable (`@_nonSendable(_assumed)`), so a retroactive conformance is not an option.
@@ -104,6 +104,26 @@ public struct DefaultsStateStore: StateStoring, HarmStoring, @unchecked Sendable
         }
 
         defaults.set(try JSONEncoder().encode(outgoing), forKey: StateKey.buckets)
+    }
+
+    // MARK: - Policy
+
+    /// Falls back to the conservative default rather than failing.
+    ///
+    /// A shield with no price on it is a dead end: the user cannot buy their way past it and the
+    /// only remaining exit is the emergency unlock. Defaulting is strictly better, and the default
+    /// is a real price rather than a placeholder.
+    public func loadPolicy() -> Policy {
+        guard let data = defaults.data(forKey: StateKey.policy) else { return .default }
+        guard let value = try? JSONDecoder().decode(Policy.self, from: data) else {
+            diagnostics.record("policy.corrupt", detail: StateKey.policy)
+            return .default
+        }
+        return value
+    }
+
+    public func savePolicy(_ policy: Policy) throws {
+        defaults.set(try JSONEncoder().encode(policy), forKey: StateKey.policy)
     }
 
     // MARK: - Harm telemetry

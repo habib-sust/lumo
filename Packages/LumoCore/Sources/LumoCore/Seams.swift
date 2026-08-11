@@ -94,6 +94,22 @@ public protocol StateStoring: Sendable {
     func saveSchemaVersion(_ version: Int) throws
 }
 
+/// Reads and writes the pricing policy.
+///
+/// **Every process must read the same one.** The shield-config extension renders a tier ladder, the
+/// shield-action extension resolves a tapped *index* against a ladder it rebuilds itself, and the
+/// app shows a third copy in the spend sheet. `TierLadder` is a pure function precisely so those
+/// three cannot disagree — but only if they are fed the same policy. Three processes each falling
+/// back to `Policy.default` while the app has personalised is the same bug with extra steps: the
+/// shield offers 45 coins, the sheet says 60, and the fingerprint check refuses the spend.
+public protocol PolicyStoring: Sendable {
+    /// Never throws and never returns nil. A missing or corrupt policy falls back to the
+    /// conservative default, which is a real price the user can act on — refusing to price at all
+    /// would leave the shield with no way out of itself.
+    func loadPolicy() -> Policy
+    func savePolicy(_ policy: Policy) throws
+}
+
 /// Reads and writes harm telemetry.
 ///
 /// **Separate from `StateStoring` on purpose.** Harm metrics live under their own key rather than

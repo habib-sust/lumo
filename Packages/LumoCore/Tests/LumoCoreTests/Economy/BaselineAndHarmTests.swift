@@ -453,4 +453,127 @@ struct BaselineAndHarmTests {
         #expect(!json.contains("sessionsStarted"))
         #expect(StateKey.all.contains(StateKey.harm), "harm would survive teardown")
     }
+
+    // MARK: - T-POLICY-01…06: personalisation reaches the price
+
+    @Test("Personalising is refused until calibration is ready")
+    func personalisationWaitsForCalibration() {
+        var calibration = BaselineCalibration.empty
+        calibration.record(highestRung: 60, on: .fixture)
+
+        let outcome = PolicyPersonalizer.evaluate(
+            calibration: calibration, current: .default, habitMinutesPerDay: 20, now: .fixture)
+
+        #expect(outcome == .stillCalibrating(daysRemaining: 2))
+    }
+
+    @Test("No fired rung means no personalisation, not a fabricated baseline")
+    func noSignalKeepsDefaults() {
+        var calibration = BaselineCalibration.empty
+        for day in 0..<3 {
+            calibration.record(
+                highestRung: nil, on: Date.fixture.addingTimeInterval(TimeInterval(day) * 86_400))
+        }
+
+        let outcome = PolicyPersonalizer.evaluate(
+            calibration: calibration, current: .default, habitMinutesPerDay: 20, now: .fixture)
+
+        #expect(outcome == .noSignal)
+    }
+
+    @Test("No completed habit sessions means no personalisation")
+    func zeroHabitMinutesKeepsDefaults() {
+        var calibration = BaselineCalibration.empty
+        for day in 0..<3 {
+            calibration.record(
+                highestRung: 60, on: Date.fixture.addingTimeInterval(TimeInterval(day) * 86_400))
+        }
+
+        // A zero habit side would make the ratio zero and every unlock free — the exact punisher
+        // boundary the whole pricing model exists to stay above.
+        let outcome = PolicyPersonalizer.evaluate(
+            calibration: calibration, current: .default, habitMinutesPerDay: 0, now: .fixture)
+
+        #expect(outcome == .noSignal)
+    }
+
+    @Test("A measured baseline reprices, and stays inside the admissible band")
+    func measurementReprices() throws {
+        var calibration = BaselineCalibration.empty
+        for day in 0..<3 {
+            calibration.record(
+                highestRung: 120, on: Date.fixture.addingTimeInterval(TimeInterval(day) * 86_400))
+        }
+
+        let outcome = PolicyPersonalizer.evaluate(
+            calibration: calibration, current: .default, habitMinutesPerDay: 15, now: .fixture)
+
+        guard case let .repriced(policy) = outcome else {
+            Issue.record("expected a reprice, got \(outcome)")
+            return
+        }
+        #expect(Pricing.admissibleBand(for: policy.baseline).contains(policy.requiredRatio))
+        #expect(policy.baseline.source == .thresholdLadder)
+    }
+
+    @Test("Re-running against the same measurement does not rewrite the policy")
+    func repricingIsStable() throws {
+        var calibration = BaselineCalibration.empty
+        for day in 0..<3 {
+            calibration.record(
+                highestRung: 60, on: Date.fixture.addingTimeInterval(TimeInterval(day) * 86_400))
+        }
+
+        let first = PolicyPersonalizer.evaluate(
+            calibration: calibration, current: .default, habitMinutesPerDay: 20, now: .fixture)
+        guard case let .repriced(policy) = first else {
+            Issue.record("expected a reprice, got \(first)")
+            return
+        }
+
+        // This runs on every foreground. Baseline.observedAt moves each time, so a naive equality
+        // check would report a change forever and rewrite the policy on every launch — which would
+        // also churn the fingerprint the shield extensions validate against.
+        let second = PolicyPersonalizer.evaluate(
+            calibration: calibration,
+            current: policy,
+            habitMinutesPerDay: 20,
+            now: Date.fixture.addingTimeInterval(9_999)
+        )
+        #expect(second == .unchanged)
+    }
+
+    @Test("Habit minutes are averaged over days, not over sessions")
+    func habitMinutesAveragePerDay() {
+        // One 40-minute session in a week is ~5.7 min/day, not 40. Dividing by sessions would
+        // inflate the habit side of the ratio, which makes unlocks cheaper — the punisher
+        // direction, and invisible unless it is asserted.
+        let perDay = PolicyPersonalizer.habitMinutesPerDay(
+            completedSessionMinutes: [40], overDays: 7)
+        #expect(abs(perDay - 40.0 / 7.0) < 0.001)
+
+        #expect(PolicyPersonalizer.habitMinutesPerDay(completedSessionMinutes: [], overDays: 7) == 0)
+        #expect(PolicyPersonalizer.habitMinutesPerDay(
+            completedSessionMinutes: [10], overDays: 0) == 0)
+    }
+
+    @Test("All processes read one policy, and a corrupt one falls back to a usable price")
+    func policyRoundTripsAndFallsBack() throws {
+        let defaults = scratchDefaults("policy")
+        let diagnostics = RecordingDiagnostics()
+        let store = DefaultsStateStore(defaults: defaults, diagnostics: diagnostics)
+
+        #expect(store.loadPolicy() == .default)
+
+        var policy = Policy.default
+        policy.tierMinutes = [20, 45]
+        try store.savePolicy(policy)
+        #expect(store.loadPolicy().tierMinutes == [20, 45])
+
+        defaults.set(Data("{ not json".utf8), forKey: StateKey.policy)
+        // A shield with no price on it is a dead end the user cannot act on, so this defaults
+        // rather than failing — unlike the wallet, which must never be fabricated.
+        #expect(store.loadPolicy() == .default)
+        #expect(diagnostics.events.contains { $0.event == "policy.corrupt" })
+    }
 }

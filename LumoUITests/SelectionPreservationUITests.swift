@@ -91,11 +91,15 @@ final class SelectionPreservationUITests: LumoUITestCase {
 
         // Returns to setup, since "unlock everything" means starting over. Previously it left the
         // user on a home screen with no route back to anything.
-        XCTAssertTrue(
-            app.staticTexts["Nothing was locked."].waitForExistence(timeout: 5)
-                || app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'unlocked'")).firstMatch.waitForExistence(timeout: 5),
-            "teardown should report what it released"
-        )
+        // Scrolls to find it: the result row is appended below the teardown button, so whether it
+        // lands on screen depends on the simulator's height rather than on anything the app did.
+        let reported = waitScrolling(for: app.staticTexts["Nothing was locked."], timeout: 3)
+            || waitScrolling(
+                for: app.staticTexts
+                    .matching(NSPredicate(format: "label CONTAINS 'unlocked'")).firstMatch,
+                timeout: 3
+            )
+        XCTAssertTrue(reported, "teardown should report what it released")
     }
 
     func testConfirmationDialogSaysWhatSurvives() {
