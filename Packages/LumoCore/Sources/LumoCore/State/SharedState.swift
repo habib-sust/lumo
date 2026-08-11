@@ -94,6 +94,11 @@ public struct SharedState: Codable, Sendable, Equatable {
     /// deny access.
     public var emergency: EmergencyLog
 
+    /// Baseline observations. Lives in Tier 1 because the MONITOR EXTENSION writes it — threshold
+    /// callbacks are where the measurement happens. Bounded to 14 days precisely because this blob
+    /// is decoded on every extension callback under a 6 MB ceiling.
+    public var baseline: BaselineCalibration
+
     public var flags: Flags
     public var lastReconcileAt: Date?
     public var lastReconcileBy: ProcessTag?
@@ -155,6 +160,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         journal: [SpendIntent] = [],
         mirror: ShieldMirror = .empty,
         emergency: EmergencyLog = .empty,
+        baseline: BaselineCalibration = .empty,
         flags: Flags = [],
         lastReconcileAt: Date? = nil,
         lastReconcileBy: ProcessTag? = nil,
@@ -167,6 +173,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         self.journal = journal
         self.mirror = mirror
         self.emergency = emergency
+        self.baseline = baseline
         self.flags = flags
         self.lastReconcileAt = lastReconcileAt
         self.lastReconcileBy = lastReconcileBy
@@ -193,6 +200,7 @@ public struct SharedState: Codable, Sendable, Equatable {
         journal = try c.decodeIfPresent([SpendIntent].self, forKey: .journal) ?? []
         mirror = try c.decodeIfPresent(ShieldMirror.self, forKey: .mirror) ?? .empty
         emergency = try c.decodeIfPresent(EmergencyLog.self, forKey: .emergency) ?? .empty
+        baseline = try c.decodeIfPresent(BaselineCalibration.self, forKey: .baseline) ?? .empty
         flags = try c.decodeIfPresent(Flags.self, forKey: .flags) ?? []
         lastReconcileAt = try c.decodeIfPresent(Date.self, forKey: .lastReconcileAt)
         lastReconcileBy = try c.decodeIfPresent(ProcessTag.self, forKey: .lastReconcileBy)

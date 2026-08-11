@@ -55,20 +55,26 @@ public struct ShieldReconciler: Sendable {
         public var enteredSafeMode = false
         public var skippedForLock = false
 
+        /// The baseline rung this pass recorded, if the triggering event was a ladder threshold
+        /// AND it moved the measurement. `nil` for a duplicate delivery, which is the common case.
+        public var recordedBaselineRung: Int?
+
         /// True when nothing at all had to change — the steady state, and the case that must
         /// issue zero IPC calls.
         public var isNoOp: Bool {
             shielded.isEmpty && unshielded.isEmpty && destroyed.isEmpty
                 && expiredWindows == 0 && rolledBackIntents == 0 && completedIntents == 0
-                && disarmedActivities == 0
+                && disarmedActivities == 0 && recordedBaselineRung == nil
         }
     }
 
+    /// - Parameter eventName: the raw `DeviceActivityEvent.Name` that triggered this pass, when there
+    ///   was one. Used for **nothing** except the baseline ladder — see the note on `recordBaseline`.
     @discardableResult
-    public func reconcile(by process: ProcessTag) -> Outcome {
+    public func reconcile(by process: ProcessTag, observing eventName: String? = nil) -> Outcome {
         // Contention must never stall a caller. The shield-render path in particular has to
         // return promptly or the system substitutes Apple's generic grey shield.
-        guard let outcome = lock.withLock({ perform(by: process) }) else {
+        guard let outcome = lock.withLock({ perform(by: process, observing: eventName) }) else {
             // Escalated for the monitor specifically. For the config extension a skip is benign —
             // it renders from last-known state. For the monitor it means a paid window did not
             // close, which is a correctness failure and must be visible as one.
@@ -85,7 +91,7 @@ public struct ShieldReconciler: Sendable {
 
     // MARK: - The body
 
-    private func perform(by process: ProcessTag) -> Outcome {
+    private func perform(by process: ProcessTag, observing eventName: String?) -> Outcome {
         var out = Outcome()
         let now = clock.now
 
@@ -121,6 +127,7 @@ public struct ShieldReconciler: Sendable {
         // bug is invisible in the debug panel, which is the one place we would look for it.
         let flagsBefore = shared.flags
 
+        recordBaseline(&shared, eventName: eventName, now: now, out: &out)
         resolveJournal(&shared, now: now, out: &out)
         expireWindows(&shared, now: now, out: &out)
         applyShieldDeltas(&shared, table: table, now: now, out: &out)
@@ -134,6 +141,42 @@ public struct ShieldReconciler: Sendable {
             try? state.saveState(shared)
         }
         return out
+    }
+
+    // MARK: - Baseline ladder
+
+    /// Records a baseline rung when the triggering event was a ladder threshold.
+    ///
+    /// **This is the one place in the codebase that reads meaning from an event name**, and the
+    /// carve-out is argued in full on `BaselineCalibration.rung(fromEventName:)`. The short version:
+    /// everywhere else callbacks are triggers and never data, because spurious and duplicate
+    /// deliveries are documented. Here the event's identity *is* the measurement, and the blast
+    /// radius of a phantom fire is a slightly inflated estimate — it cannot open or close a shield.
+    ///
+    /// **Known measurement bias, deliberately accepted.** The ladder observes apps that are already
+    /// shielded, so what it sees is scroll time *under the current price*, not the untreated
+    /// baseline. That is a systematic UNDER-estimate of true baseline scroll — and under-estimating
+    /// scroll raises the required ratio, which raises the price. That is the safe direction: the
+    /// failure this whole subsystem exists to prevent is pricing *below* the baseline ratio, where
+    /// the contingency stops reinforcing and starts suppressing the habit. Erring expensive costs
+    /// the user some convenience; erring cheap costs them the intervention.
+    private func recordBaseline(
+        _ shared: inout SharedState,
+        eventName: String?,
+        now: Date,
+        out: inout Outcome
+    ) {
+        guard let eventName, let rung = BaselineCalibration.rung(fromEventName: eventName) else {
+            return
+        }
+        let before = shared.baseline
+        shared.baseline.record(highestRung: rung, on: now)
+        // Only report a change. `record` is idempotent per day and monotonic within one, so a
+        // duplicate delivery leaves the measurement untouched — and must therefore leave the
+        // steady-state reconcile a pure read, with no write and no IPC.
+        guard shared.baseline != before else { return }
+        out.recordedBaselineRung = rung
+        diagnostics.record("baseline.rung", detail: "\(rung)m day=\(shared.baseline.observedDays)")
     }
 
     // MARK: - Journal

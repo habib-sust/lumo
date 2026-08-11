@@ -236,6 +236,15 @@ struct CodecTests {
                 origin: .purchased, intentID: UUID()
             ))
         }
+        // Baseline calibration at its 14-day cap. Added when the ladder landed, because a new field
+        // in this blob is exactly the kind of growth the guardrail exists to catch.
+        for offset in 0..<20 {
+            state.baseline.record(
+                highestRung: 120,
+                on: Date.fixture.addingTimeInterval(TimeInterval(offset * 86_400))
+            )
+        }
+        state.emergency.record(now: .fixture)
 
         let size = try encoder.encode(state).count
         #expect(

@@ -6,7 +6,7 @@ import Foundation
 /// keeping it here means the **corruption-recovery ladder is testable on macOS**. That ladder
 /// is the code protecting the user's coin balance, so it is exactly what should not be
 /// device-only. LumoShieldKit's job is reduced to naming the App Group suite.
-public struct DefaultsStateStore: StateStoring, @unchecked Sendable {
+public struct DefaultsStateStore: StateStoring, HarmStoring, @unchecked Sendable {
 
     // `@unchecked Sendable` because `UserDefaults`' Sendable conformance is explicitly
     // unavailable (`@_nonSendable(_assumed)`), so a retroactive conformance is not an option.
@@ -104,6 +104,24 @@ public struct DefaultsStateStore: StateStoring, @unchecked Sendable {
         }
 
         defaults.set(try JSONEncoder().encode(outgoing), forKey: StateKey.buckets)
+    }
+
+    // MARK: - Harm telemetry
+
+    /// No recovery ladder and no throw. Losing a week of instrumentation is a nuisance; refusing to
+    /// launch over it would be absurd. Contrast `loadState`, which must never fabricate — the
+    /// difference is that one holds the user's coins and this holds our measurements.
+    public func loadHarm() -> HarmMetrics {
+        guard let data = defaults.data(forKey: StateKey.harm) else { return .empty }
+        guard let value = try? JSONDecoder().decode(HarmMetrics.self, from: data) else {
+            diagnostics.record("harm.corrupt", detail: StateKey.harm)
+            return .empty
+        }
+        return value
+    }
+
+    public func saveHarm(_ metrics: HarmMetrics) throws {
+        defaults.set(try JSONEncoder().encode(metrics), forKey: StateKey.harm)
     }
 
     // MARK: - Schema

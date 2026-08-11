@@ -174,6 +174,7 @@ final class SelectionService {
             // Apply immediately. A saved-but-unapplied blocklist is the state where the UI says
             // "locked" and nothing is.
             LumoStack.reconcileNow(.app)
+            rearmBaselineLadder(for: outcome.table)
             DarwinPing.windowsChanged.post()
             return true
 
@@ -201,6 +202,28 @@ final class SelectionService {
               let table = try? store.loadBuckets()
         else { return nil }
         return (table.applicationBucketCount, table.categoryBucketCount, table.essential.count)
+    }
+
+    // MARK: - Baseline ladder
+
+    /// Re-registers the measurement thresholds over whatever the blocklist now contains.
+    ///
+    /// Has to happen on every commit, not just the first: the ladder's events are bound to specific
+    /// tokens, so an unchanged registration would keep measuring apps the user just removed and
+    /// ignore the ones they just added.
+    ///
+    /// Failure is swallowed on purpose. The ladder buys personalised pricing, and its absence falls
+    /// back to defaults — whereas propagating the error here would fail a commit that has already
+    /// successfully saved and applied the user's shields.
+    private func rearmBaselineLadder(for table: BucketTable) {
+        let apps = Set(table.buckets.values.filter { $0.kind == .application }.map(\.token))
+        let categories = Set(table.buckets.values.filter { $0.kind == .category }.map(\.token))
+        do {
+            try BaselineLadderScheduler(diagnostics: LumoStack.diagnostics(for: .app))
+                .arm(applications: apps, categories: categories)
+        } catch {
+            LumoStack.diagnostics(for: .app).record("baseline.armFailed", detail: "\(error)")
+        }
     }
 
     // MARK: - Token conversion

@@ -172,6 +172,11 @@ struct SettingsView: View {
         // Reports zero rather than failing silently when the App Group is missing — in that case
         // there were no shields to release, so the user is not trapped either way.
         releasedCount = LumoStack.emergencyUnlock(for: .app)?.unlockEverything() ?? 0
+        // The measurement ladder is not an unlock activity, so the reconciler's garbage collector
+        // deliberately cannot see it — which means teardown has to stop it by name. Otherwise
+        // "unlock everything and remove Lumo" leaves the OS still monitoring the user's apps on
+        // our behalf, which is the exact opposite of what that button promises.
+        BaselineLadderScheduler(diagnostics: LumoStack.diagnostics(for: .app)).disarm()
         authorization.refresh()
         // Returning to setup, because "unlock everything" means starting over. Previously this
         // left the user on a home screen with no route back to either picker.

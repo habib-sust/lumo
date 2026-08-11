@@ -42,12 +42,16 @@ final class LumoDeviceActivityMonitor: DeviceActivityMonitor {
     /// firing at +0 seconds on iOS 26.5.2 even with `includesPastActivity: false`. The
     /// reconciler applies a sanity floor before honouring it, so a phantom fire costs a log
     /// line rather than the user's coins.
+    ///
+    /// The event name is forwarded — the single exception to "callbacks are triggers, never data",
+    /// because the baseline ladder encodes its measurement in the name and has nowhere else to put
+    /// it. The reconciler is the only reader; see `ShieldReconciler.recordBaseline`.
     override func eventDidReachThreshold(
         _ event: DeviceActivityEvent.Name,
         activity: DeviceActivityName
     ) {
         super.eventDidReachThreshold(event, activity: activity)
-        reconcile(.eventDidReachThreshold)
+        reconcile(.eventDidReachThreshold, observing: event.rawValue)
     }
 
     override func intervalWillStartWarning(for activity: DeviceActivityName) {
@@ -75,16 +79,17 @@ final class LumoDeviceActivityMonitor: DeviceActivityMonitor {
         case intervalWillStartWarning, intervalWillEndWarning, eventWillReachThresholdWarning
     }
 
-    private func reconcile(_ trigger: Trigger) {
+    private func reconcile(_ trigger: Trigger, observing eventName: String? = nil) {
         // Synchronous, with no Task and no await: this extension can be suspended or killed at
         // any moment, so the work has to complete inline or not at all.
         //
         // Note the trigger is logged but never acted on. Every callback means the same thing —
         // "recompute from persisted state" — which is what makes phantom thresholds, spurious
-        // intervalDidEnd and duplicate deliveries harmless.
-        let outcome = LumoStack.reconcileNow(.monitor)
+        // intervalDidEnd and duplicate deliveries harmless. `eventName` is the lone exception and
+        // reaches exactly one reader, the baseline ladder.
+        let outcome = LumoStack.reconcileNow(.monitor, observing: eventName)
         Self.log.info(
-            "trigger=\(trigger.rawValue, privacy: .public) shielded=\(outcome?.shielded.count ?? -1) expired=\(outcome?.expiredWindows ?? -1)"
+            "trigger=\(trigger.rawValue, privacy: .public) shielded=\(outcome?.shielded.count ?? -1) expired=\(outcome?.expiredWindows ?? -1) rung=\(outcome?.recordedBaselineRung ?? -1)"
         )
     }
 }

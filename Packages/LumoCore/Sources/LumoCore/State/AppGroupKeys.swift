@@ -43,10 +43,17 @@ public enum StateKey {
     /// Ring buffer for the debug panel. Best-effort, bounded, never gates logic.
     public static let diagnostics = "lumo.diag"
 
+    /// Harm telemetry. App-write-only and app-read-only.
+    ///
+    /// Kept OUT of `lumo.state` deliberately: the monitor extension decodes that blob on every
+    /// callback under a 6 MB ceiling, and it has no use for enjoyment samples. Splitting by who
+    /// needs to decode is the same reason bucket tokens live in their own key.
+    public static let harm = "lumo.harm"
+
     /// Everything Lumo owns, for teardown. Used by "Unlock everything and remove Lumo",
     /// which must always work and must never require a Screen Time passcode.
     public static let all: [String] = [
-        schemaVersion, state, stateBackup, buckets, policy, renderProvenance, diagnostics,
+        schemaVersion, state, stateBackup, buckets, policy, renderProvenance, diagnostics, harm,
     ]
 }
 

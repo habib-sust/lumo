@@ -118,8 +118,11 @@ public enum LumoStack {
     /// suspension point the user can exploit by backgrounding mid-reconcile, leaving shields
     /// half-applied.
     @discardableResult
-    public static func reconcileNow(_ process: ProcessTag) -> ShieldReconciler.Outcome? {
-        reconciler(for: process)?.reconcile(by: process)
+    public static func reconcileNow(
+        _ process: ProcessTag,
+        observing eventName: String? = nil
+    ) -> ShieldReconciler.Outcome? {
+        reconciler(for: process)?.reconcile(by: process, observing: eventName)
     }
 
     /// The free, always-available unlock and the teardown path.

@@ -94,6 +94,22 @@ public protocol StateStoring: Sendable {
     func saveSchemaVersion(_ version: Int) throws
 }
 
+/// Reads and writes harm telemetry.
+///
+/// **Separate from `StateStoring` on purpose.** Harm metrics live under their own key rather than
+/// inside the hot `lumo.state` blob, so the monitor extension — which decodes that blob on every
+/// callback under a 6 MB ceiling — never deserialises the user's self-reported enjoyment scores. It
+/// has no business reading them and no reason to pay for them. Keeping the seam separate too means
+/// no extension can acquire the capability by accident.
+///
+/// Never throws on read. This is instrumentation: losing it must never degrade the product, so a
+/// corrupt payload resets to empty rather than escalating. That is the opposite of the wallet's
+/// rule, and correct for the same reason — one is the user's property, the other is a measurement.
+public protocol HarmStoring: Sendable {
+    func loadHarm() -> HarmMetrics
+    func saveHarm(_ metrics: HarmMetrics) throws
+}
+
 /// What a caller means about the essential-apps set when saving a bucket table.
 public enum EssentialIntent: Sendable, Equatable {
     /// Keep whatever is already persisted, ignoring the incoming set.
