@@ -30,6 +30,15 @@ public struct DebugSnapshot: Sendable {
     /// never be read as "none exist".
     public var systemStoreNames: [String]?
     public var lumoActivityNames: [String]
+
+    /// Baseline calibration progress. The whole point of the ladder is that it is invisible in
+    /// normal use, which makes it invisible when it is broken too — so it gets a line here.
+    public var baselineDays: Int
+    public var baselineInferredMinutes: Double?
+    /// The policy every process prices from, so a mismatch between the shield and the sheet is
+    /// diagnosable rather than a mystery.
+    public var policySummary: String
+
     public var recentDiagnostics: [String]
 
     public static func capture() -> DebugSnapshot {
@@ -49,6 +58,9 @@ public struct DebugSnapshot: Sendable {
             flags: [],
             systemStoreNames: nil,
             lumoActivityNames: [],
+            baselineDays: 0,
+            baselineInferredMinutes: nil,
+            policySummary: "unread",
             recentDiagnostics: []
         )
 
@@ -60,7 +72,19 @@ public struct DebugSnapshot: Sendable {
                 snapshot.liveWindows = state.openBuckets(now: Date()).count
                 snapshot.journalEntries = state.journal.count
                 snapshot.flags = Self.describe(state.flags)
+                snapshot.baselineDays = state.baseline.observedDays
+                snapshot.baselineInferredMinutes = state.baseline.inferredScrollMinutes()
             }
+            let policy = store.loadPolicy()
+            snapshot.policySummary = [
+                "scroll \(Int(policy.baseline.scrollMinutesPerDay))m",
+                "habit \(Int(policy.baseline.habitMinutesPerDay))m",
+                "ratio \(String(format: "%.3f", policy.requiredRatio))",
+                "source \(policy.baseline.source)",
+                "tiers " + policy.tierMinutes
+                    .map { "\($0)m=\(policy.price(forMinutes: $0))c" }
+                    .joined(separator: "/"),
+            ].joined(separator: " ")
             if let table = try? store.loadBuckets() {
                 snapshot.bucketCount = table.buckets.count
                 snapshot.essentialCount = table.essential.count
@@ -71,9 +95,13 @@ public struct DebugSnapshot: Sendable {
             snapshot.systemStoreNames = ManagedSettingsStore.stores.map(\.rawValue).sorted()
         }
 
+        // Every Lumo activity, not only unlock windows. The garbage collector filters on the
+        // `lumo.unlock.` prefix so it can never stop the long-lived baseline ladder — but reusing
+        // that filter here made the ladder invisible in the one place we would look to confirm it
+        // armed, which is the same "cannot distinguish success from absence" trap as ever.
         snapshot.lumoActivityNames = DeviceActivityCenter().activities
             .map(\.rawValue)
-            .filter { $0.hasPrefix(LiveActivityScheduler.namePrefix) }
+            .filter { $0.hasPrefix("lumo.") }
             .sorted()
 
         if let defaults {
@@ -113,6 +141,9 @@ public struct DebugSnapshot: Sendable {
         lines.append("flags:           \(flags.isEmpty ? "none" : flags.joined(separator: ","))")
         lines.append("systemStores:    \(systemStoreNames.map { $0.isEmpty ? "[] (none)" : $0.joined(separator: ",") } ?? "unavailable (<26.5)")")
         lines.append("lumoActivities:  \(lumoActivityNames.isEmpty ? "none" : lumoActivityNames.joined(separator: ","))")
+        lines.append("baseline:        \(baselineDays)/\(BaselineCalibration.requiredDays) day(s)"
+            + (baselineInferredMinutes.map { ", inferred \(Int($0))m scroll" } ?? ", no signal yet"))
+        lines.append("policy:          \(policySummary)")
         lines.append("diagnostics:")
         if recentDiagnostics.isEmpty {
             lines.append("  (empty)")
