@@ -11,6 +11,7 @@ import SwiftUI
 struct SettingsView: View {
 
     @Environment(AuthorizationService.self) private var authorization
+    @Environment(\.dismiss) private var dismiss
     @State private var isConfirmingTeardown = false
     @State private var releasedCount: Int?
 
@@ -42,6 +43,11 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(Color.lumoInk)
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
         .sheet(item: $destination) { destination in
             switch destination {
@@ -74,7 +80,9 @@ struct SettingsView: View {
     /// people will come here to do.
     private var appsSection: some View {
         Section {
-            Button("Change your apps") { destination = .manageApps }
+            Button { destination = .manageApps } label: {
+                Label("Change your apps", systemImage: "apps.iphone")
+            }
                 .accessibilityIdentifier("settings.changeApps")
                 .foregroundStyle(Color.lumoFlare)
         } header: {
@@ -86,14 +94,16 @@ struct SettingsView: View {
 
     private var diagnosticsSection: some View {
         Section {
-            Button("Show diagnostics") { destination = .diagnostics }
+            Button { destination = .diagnostics } label: {
+                Label("Show diagnostics", systemImage: "waveform.path.ecg")
+            }
                 .accessibilityIdentifier("settings.showDiagnostics")
                 .foregroundStyle(Color.lumoHaze)
         } footer: {
             // Shipped rather than Debug-gated: when a user reports "it stopped locking", this is
             // the only thing that can say why.
             Text("If something isn't working, this shows Lumo's current state.")
-                .foregroundStyle(Color.lumoHaze.opacity(0.8))
+                .foregroundStyle(Color.lumoHaze)
         }
     }
 
@@ -119,7 +129,7 @@ struct SettingsView: View {
             // Deliberately not a marketing claim. Every competitor eats one-star reviews for
             // platform bugs they never explain; explaining them is cheap and true.
             Text("Apple's Screen Time occasionally forgets which apps an app was told to lock. If something stops locking, reopening Lumo repairs it.")
-                .foregroundStyle(Color.lumoHaze.opacity(0.8))
+                .foregroundStyle(Color.lumoHaze)
         }
     }
 
@@ -160,7 +170,7 @@ struct SettingsView: View {
 
     private func row(_ title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.body.weight(.medium)).foregroundStyle(.white)
+            Text(title).font(.body.weight(.medium)).foregroundStyle(Color.lumoText)
             Text(detail).font(.footnote).foregroundStyle(Color.lumoHaze)
         }
         .padding(.vertical, 2)

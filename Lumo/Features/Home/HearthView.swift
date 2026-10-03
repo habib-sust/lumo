@@ -44,18 +44,36 @@ struct HearthView: View {
             LightRadius(warmth: model.snapshot.warmth, surge: model.surge)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: LumoSpace.loose)
-                VectorBuddy(mood: model.snapshot.mood)
-                balance
-                earnRow
-                Spacer(minLength: LumoSpace.loose)
-                openRow
-                lockedRow
+            ScrollView {
+                VStack(spacing: 28) {
+                    header
+                    VStack(spacing: 20) {
+                        VectorBuddy(mood: model.snapshot.mood)
+                            .padding(.top, 12)
+                        balance
+                        earnRow
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(24)
+                    .background(Color.lumoSoot, in: RoundedRectangle(cornerRadius: 32))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 32)
+                            .strokeBorder(Color.lumoHaze.opacity(0.16), lineWidth: 1)
+                    }
+                    openRow
+                    VStack(alignment: .leading, spacing: 16) {
+                        LumoSectionHeading(
+                            title: "Your apps",
+                            subtitle: "A little intention before screen time."
+                        )
+                        lockedRow
+                    }
+                }
+                .frame(maxWidth: 560)
+                .padding(.horizontal, LumoSpace.margin)
+                .padding(.vertical, LumoSpace.loose)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, LumoSpace.margin)
-            .padding(.vertical, LumoSpace.loose)
         }
         .onAppear {
             habits.load()
@@ -124,35 +142,47 @@ struct HearthView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Lumo")
+                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                        .foregroundStyle(Color.lumoText)
+                    Text("Make room for what matters.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.lumoHaze)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button { route = .settings } label: {
+                    Image(systemName: "gearshape")
+                        .font(.lumoHeadline)
+                        .foregroundStyle(Color.lumoText)
+                        .frame(width: 48, height: 48)
+                        .background(Color.lumoSoot, in: Circle())
+                }
+                .accessibilityIdentifier("home.settings")
+                .accessibilityLabel("Settings")
+            }
             if let guidance = authorization.guidance {
-                // Kept on the home screen, not only in setup. If access is revoked in Settings while
-                // Lumo is not running, every locked app silently reopens — and a user who is not
-                // told will conclude the app is broken rather than that iOS turned it off.
-                Text(guidance.title)
-                    .font(.lumoCaption)
+                Label(guidance.title, systemImage: "info.circle")
+                    .font(.subheadline)
                     .foregroundStyle(Color.lumoEmber)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
-            Button {
-                route = .settings
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.lumoHeadline)
-                    .foregroundStyle(Color.lumoHaze)
-            }
-            .accessibilityIdentifier("home.settings")
-            .accessibilityLabel("Settings")
         }
     }
 
     // MARK: - Balance
 
     private var balance: some View {
-        VStack(spacing: LumoSpace.hair) {
+        VStack(spacing: LumoSpace.tight) {
+            Text("Available coins")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color.lumoHaze)
             Text("\(model.snapshot.wallet.total)")
                 .font(.lumoCoin)
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.lumoText)
             Text(balanceCaption)
                 .lumoSecondary()
                 .multilineTextAlignment(.center)
@@ -212,12 +242,14 @@ struct HearthView: View {
             Button {
                 route = .habits
             } label: {
-                Text("Do something")
+                Label("Earn coins", systemImage: "plus.circle.fill")
                     .font(.lumoCallout)
-                    .foregroundStyle(Color.lumoInk)
+                    .foregroundStyle(Color.lumoOnAccent)
                     .padding(.vertical, LumoSpace.tight)
-                    .padding(.horizontal, LumoSpace.loose)
-                    .background(Color.lumoFlare)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 32)
+                    .background(Color.lumoAccentFill)
+                    .overlay { Capsule().strokeBorder(Color.lumoFlare, lineWidth: 1) }
                     .clipShape(Capsule())
             }
             .accessibilityIdentifier("home.earn")
@@ -231,6 +263,7 @@ struct HearthView: View {
     private var openRow: some View {
         if !model.snapshot.open.isEmpty {
             VStack(spacing: LumoSpace.tight) {
+                LumoSectionHeading(title: "Open now", subtitle: "Enjoy your time. We'll handle the boundary.")
                 ForEach(model.snapshot.open, id: \.bucket.id) { entry in
                     HStack(spacing: LumoSpace.snug) {
                         BucketLabel(bucket: entry.bucket)
@@ -257,8 +290,18 @@ struct HearthView: View {
     @ViewBuilder
     private var lockedRow: some View {
         if model.snapshot.locked.isEmpty {
-            Text("No apps locked yet.")
-                .lumoSecondary()
+            VStack(spacing: 16) {
+                LumoEmptyState(
+                    symbol: "apps.iphone",
+                    title: "Choose your boundaries",
+                    detail: "Choose the apps you'd like to spend less time in. Essential apps always stay available."
+                )
+                Button("Choose apps") { route = .settings }
+                    .font(.lumoHeadline)
+                    .foregroundStyle(Color.lumoFlare)
+                    .frame(minHeight: 44)
+            }
+            .lumoSurface()
         } else {
             VStack(spacing: LumoSpace.tight) {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -269,11 +312,8 @@ struct HearthView: View {
                             } label: {
                                 BucketLabel(bucket: bucket)
                                     .frame(width: 52, height: 52)
-                                    // Dim, and outside the light. This is the whole visual argument
-                                    // of the screen, so it is a saturation change rather than a
-                                    // padlock badge — a badge would be an accusation.
+                                    // Desaturate locked apps without fading their identifying icons.
                                     .saturation(0.25)
-                                    .opacity(0.55)
                             }
                             .accessibilityIdentifier("home.locked.\(bucket.id.slot)")
                             .accessibilityLabel("Locked app. Spend coins to open it.")
@@ -315,4 +355,10 @@ enum Countdown {
         if minutes == 1 { return "About a minute left" }
         return "About \(minutes) minutes left"
     }
+}
+
+#Preview("Home") {
+    HearthView()
+        .environment(AuthorizationService())
+        .environment(HabitService())
 }

@@ -34,9 +34,9 @@ struct LightRadius: View {
 
             RadialGradient(
                 stops: [
-                    .init(color: .lumoFlare.opacity(0.95 * boosted), location: 0),
-                    .init(color: .lumoEmber.opacity(0.55 * boosted), location: 0.35),
-                    .init(color: .lumoEmber.opacity(0), location: 1),
+                    .init(color: .lumoAccentFill.opacity(0.95 * boosted), location: 0),
+                    .init(color: .lumoGlowEmber.opacity(0.55 * boosted), location: 0.35),
+                    .init(color: .lumoGlowEmber.opacity(0), location: 1),
                 ],
                 center: .center,
                 startRadius: 0,
@@ -48,6 +48,8 @@ struct LightRadius: View {
             // Desaturating at low warmth does the emotional work that a red "empty" state would
             // otherwise do, without ever using an alarm colour on the user's own balance.
             .saturation(0.35 + 0.65 * clamped)
+            // Keep text readable even at peak warmth and during a surge.
+            .opacity(0.12)
             .frame(width: geometry.size.width, height: geometry.size.height)
             .lumoAnimation(LumoMotion.ambient, value: clamped)
             .lumoAnimation(LumoMotion.surge, value: surge)
@@ -84,7 +86,7 @@ extension LightRadius {
                 LightRadius(warmth: LightRadius.warmth(forBalance: coins))
                 Text("\(coins)")
                     .font(.lumoCoin)
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(Color.lumoText)
             }
             .frame(height: 120)
         }

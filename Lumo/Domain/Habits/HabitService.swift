@@ -5,10 +5,6 @@ import Observation
 import SwiftData
 
 /// Habits, the running timer, and the transaction that turns a finished session into coins.
-///
-/// **This is the earning half of the loop, and it was missing.** `GrantCycle` and `CoinAward` shipped
-/// fully tested with zero call sites, so the wallet could only ever be zero and every price in the
-/// app was theoretical. Tested logic with no caller is not a feature.
 @MainActor
 @Observable
 final class HabitService {
@@ -29,7 +25,7 @@ final class HabitService {
         timer = LumoStack.stateStore(for: .app)?.loadTimer()
     }
 
-    // MARK: - Habit CRUD
+    // MARK: - Habit management
 
     /// The user authors their own habits, including the target.
     ///
@@ -38,11 +34,11 @@ final class HabitService {
     /// judged against is the user's own, not one Lumo imposed.
     func create(name: String, targetMinutes: Int, isMonetised: Bool) {
         guard let container = LumoPersistence.container else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
 
         let spec = HabitSpec(
-            name: trimmed,
+            name: trimmedName,
             targetMinutes: max(1, targetMinutes),
             isMonetised: isMonetised
         )
@@ -65,24 +61,28 @@ final class HabitService {
         load()
     }
 
-    // MARK: - The timer
+    // MARK: - Timer lifecycle
 
     func start(_ habit: HabitSpec) {
         guard timer == nil else { return }
-        let started = HabitTimer(habitID: habit.id, targetMinutes: habit.targetMinutes, startedAt: Date())
-        persist(started)
+        let startedTimer = HabitTimer(
+            habitID: habit.id,
+            targetMinutes: habit.targetMinutes,
+            startedAt: Date()
+        )
+        persistTimer(startedTimer)
     }
 
     func pause() {
         guard var timer, timer.isRunning else { return }
         timer.pause(at: Date())
-        persist(timer)
+        persistTimer(timer)
     }
 
     func resume() {
         guard var timer, timer.isPaused else { return }
         timer.resume(at: Date())
-        persist(timer)
+        persistTimer(timer)
     }
 
     /// Abandons without awarding. Recorded, because abandonment rate is a harm signal.
@@ -91,7 +91,7 @@ final class HabitService {
         var metrics = LumoStack.stateStore(for: .app)?.loadHarm() ?? .empty
         metrics.sessionsAbandoned += 1
         try? LumoStack.stateStore(for: .app)?.saveHarm(metrics)
-        persist(nil)
+        persistTimer(nil)
     }
 
     /// Finishes the session, awards coins, and writes the audit trail.
@@ -102,7 +102,7 @@ final class HabitService {
     func finish() -> AwardOutcome? {
         guard var running = timer, let habit = runningHabit else { return nil }
         let session = running.finish(at: Date())
-        persist(nil)
+        persistTimer(nil)
         return settle(session: session, habit: habit)
     }
 
@@ -121,6 +121,10 @@ final class HabitService {
         return settle(session: session, habit: habit)
     }
 
+    func clearLastAward() {
+        lastAward = nil
+    }
+
     // MARK: - Settlement
 
     private func settle(session: HabitSession, habit: HabitSpec) -> AwardOutcome? {
@@ -136,15 +140,14 @@ final class HabitService {
             // the new week's ledger, not the expired one.
             GrantCycle.issueIfNeeded(state: &state, policy: policy, now: now)
 
+            // Keep the existing session-derived roll; hashValue is stable only within this process.
+            let surpriseRoll = abs(Int(session.endedAt.timeIntervalSince1970) &+ session.habitID.hashValue)
             let award = CoinAward.award(
                 session: session,
                 habit: habit,
                 policy: policy,
                 streak: state.streak,
-                // Derived from the session rather than a random number: unpredictable to the
-                // user, but reproducible from a bug report — and it keeps `award` a pure function,
-                // which is what makes the economy testable on macOS.
-                surpriseRoll: abs(Int(session.endedAt.timeIntervalSince1970) &+ session.habitID.hashValue)
+                surpriseRoll: surpriseRoll
             )
             let completion = state.streak.recordCompletion(on: now)
 
@@ -155,7 +158,7 @@ final class HabitService {
 
             try? store.saveState(state)
             appendLedger(award: award, habit: habit, at: now)
-            recordHarm(session: session, metStandard: award.metStandard, store: store, now: now)
+            recordSessionMetrics(metStandard: award.metStandard, store: store, now: now)
 
             LumoStackDiagnostics.record(
                 "habit.settled",
@@ -178,30 +181,45 @@ final class HabitService {
         var rows: [LedgerEntry] = []
         if award.coins > 0 {
             rows.append(LedgerEntry(
-                at: now, kind: .habitEarned, earnedDelta: award.coins, note: habit.name))
+                at: now,
+                kind: .habitEarned,
+                earnedDelta: award.coins,
+                note: habit.name
+            ))
         }
         if award.comebackBonus > 0 {
             rows.append(LedgerEntry(
-                at: now, kind: .comebackBonus, earnedDelta: award.comebackBonus, note: "back after a lapse"))
+                at: now,
+                kind: .comebackBonus,
+                earnedDelta: award.comebackBonus,
+                note: "back after a lapse"
+            ))
         }
         if award.surpriseBonus > 0 {
             rows.append(LedgerEntry(
-                at: now, kind: .surpriseBonus, earnedDelta: award.surpriseBonus, note: "unexpected"))
+                at: now,
+                kind: .surpriseBonus,
+                earnedDelta: award.surpriseBonus,
+                note: "unexpected"
+            ))
         }
         guard !rows.isEmpty else { return }
         try? ledger.append(rows)
     }
 
-    private func recordHarm(
-        session: HabitSession,
+    private func recordSessionMetrics(
         metStandard: Bool,
         store: DefaultsStateStore,
         now: Date
     ) {
         var metrics = store.loadHarm()
-        if metrics.windowStart == Date(timeIntervalSince1970: 0) { metrics.windowStart = now }
+        if metrics.windowStart == Date(timeIntervalSince1970: 0) {
+            metrics.windowStart = now
+        }
         metrics.sessionsStarted += 1
-        if metStandard { metrics.sessionsCompleted += 1 }
+        if metStandard {
+            metrics.sessionsCompleted += 1
+        }
         try? store.saveHarm(metrics)
     }
 
@@ -212,11 +230,9 @@ final class HabitService {
         try? context.save()
     }
 
-    func clearLastAward() { lastAward = nil }
+    // MARK: - Persistence
 
-    // MARK: - Plumbing
-
-    private func persist(_ value: HabitTimer?) {
+    private func persistTimer(_ value: HabitTimer?) {
         try? LumoStack.stateStore(for: .app)?.saveTimer(value)
         timer = value
     }

@@ -28,18 +28,42 @@ struct OnboardingFlow: View {
         ZStack {
             Color.lumoInk.ignoresSafeArea()
 
-            switch step {
-            case .authorize:
-                AuthorizationStep(
-                    onGranted: { step = .essentialApps },
-                    onSkipped: onFinished
-                )
-            case .essentialApps:
-                EssentialAppsStep(onNext: { step = .blockList })
-            case .blockList:
-                BlockListStep(onDone: { step = .done })
-            case .done:
-                SetupCompleteStep(onFinished: onFinished)
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Lumo").font(.lumoTitle)
+                    Spacer()
+                    Text("Step \(step.rawValue + 1) of 4")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.lumoHaze)
+                }
+                .foregroundStyle(Color.lumoText)
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                ProgressView(value: Double(step.rawValue + 1), total: 4)
+                    .tint(Color.lumoFlare)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 16)
+                    .accessibilityLabel("Setup progress")
+                ScrollView {
+                    VStack {
+                        switch step {
+                        case .authorize:
+                            AuthorizationStep(
+                                onGranted: { step = .essentialApps },
+                                onSkipped: onFinished
+                            )
+                        case .essentialApps:
+                            EssentialAppsStep(onNext: { step = .blockList })
+                        case .blockList:
+                            BlockListStep(onDone: { step = .done })
+                        case .done:
+                            SetupCompleteStep(onFinished: onFinished)
+                        }
+                    }
+                    .padding(.top, 24)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity)
+                }
             }
         }
         .animation(.snappy, value: step)
@@ -64,7 +88,7 @@ private struct AuthorizationStep: View {
             VStack(spacing: 10) {
                 Text(authorization.guidance?.title ?? "Let Lumo lock apps")
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.lumoText)
                     .multilineTextAlignment(.center)
 
                 Text(authorization.guidance?.explanation
@@ -132,9 +156,9 @@ private struct EssentialAppsStep: View {
                 .foregroundStyle(Color.lumoMoss)
 
             VStack(spacing: 10) {
-                Text("First — what must never be locked?")
+                Text("Keep the essentials close")
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.lumoText)
                     .multilineTextAlignment(.center)
 
                 Text("Pick anything you might need urgently: your phone, messages, maps, wallet, and especially any medical app — a glucose monitor, insulin pump, or medication reminder.")
@@ -147,7 +171,7 @@ private struct EssentialAppsStep: View {
                 // cannot deliver would be worse than saying nothing.
                 Text("Lumo can't tell what an app does, so it can't protect these automatically. Whatever you pick here is never locked.")
                     .font(.footnote)
-                    .foregroundStyle(Color.lumoHaze.opacity(0.8))
+                    .foregroundStyle(Color.lumoHaze)
                     .multilineTextAlignment(.center)
                     .padding(.top, 4)
             }
@@ -211,9 +235,9 @@ private struct BlockListStep: View {
                 .foregroundStyle(Color.lumoEmber)
 
             VStack(spacing: 10) {
-                Text("Now — what steals your evening?")
+                Text("Make space for better habits")
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.lumoText)
                     .multilineTextAlignment(.center)
 
                 Text("These stay locked until you've earned coins. You can change them any time.")
@@ -227,7 +251,7 @@ private struct BlockListStep: View {
             VStack(spacing: 6) {
                 Text("\(selection.blockedAppCount) of \(selection.appCap)")
                     .font(.system(.title3, design: .monospaced).weight(.medium))
-                    .foregroundStyle(selection.isOverCap ? Color.lumoEmber : .white)
+                    .foregroundStyle(selection.isOverCap ? Color.lumoEmber : Color.lumoText)
                 Text(selection.isOverCap
                      ? "That's more than iOS allows Lumo to lock at once."
                      : "apps selected")
@@ -294,11 +318,11 @@ private struct SetupCompleteStep: View {
                 .font(.system(size: 52))
                 .foregroundStyle(Color.lumoFlare)
 
-            Text("Locked.")
+            Text("You’re ready.")
                 .font(.title.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.lumoText)
 
-            Text("Do something first. Then scroll.")
+            Text("A little progress. A little screen time. Your pace.")
                 .font(.callout)
                 .foregroundStyle(Color.lumoHaze)
 
@@ -318,4 +342,10 @@ private struct SetupCompleteStep: View {
                 .padding(.bottom, 32)
         }
     }
+}
+
+#Preview("Setup") {
+    OnboardingFlow {}
+        .environment(AuthorizationService())
+        .environment(SelectionService())
 }

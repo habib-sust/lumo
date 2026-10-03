@@ -27,15 +27,21 @@ struct PrimaryButton: View {
                 if isBusy {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(Color.lumoInk)
+                        .tint(Color.lumoOnAccent)
                 }
             }
-            .font(.headline)
-            .foregroundStyle(Color.lumoInk)
+            .font(.system(.headline, design: .rounded))
+            .foregroundStyle(isEnabled ? Color.lumoOnAccent : Color.lumoHaze)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(isEnabled ? Color.lumoFlare : Color.lumoHaze.opacity(0.35))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(minHeight: 56)
+            .background(isEnabled ? Color.lumoAccentFill : Color.lumoSoot)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isEnabled ? Color.lumoFlare : Color.lumoHaze, lineWidth: 1)
+            }
         }
         .disabled(!isEnabled || isBusy)
         // Dynamic Type is honoured rather than clamped: this button carries the flow's only

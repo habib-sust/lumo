@@ -21,7 +21,7 @@ struct HabitsView: View {
                 Color.lumoInk.ignoresSafeArea()
                 content
             }
-            .navigationTitle("Things to do")
+            .navigationTitle("Your habits")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -47,18 +47,23 @@ struct HabitsView: View {
     @ViewBuilder
     private var content: some View {
         if habits.habits.isEmpty {
-            VStack(spacing: LumoSpace.snug) {
-                Text("Nothing here yet.")
-                    .font(.lumoTitle)
-                    .foregroundStyle(.white)
-                Text("Add something you actually mean to do. Chores work better than things you already love — the coins are for the ones you'd skip.")
-                    .lumoDisclosure()
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, LumoSpace.loose)
+            ScrollView {
+                VStack(spacing: 20) {
+                    LumoEmptyState(
+                        symbol: "leaf",
+                        title: "Start with one small thing",
+                        detail: "Read a chapter, take a walk, or finish a chore. Set your own target and earn time for your apps."
+                    )
+                    PrimaryButton("Create a habit", isBusy: false) { isCreating = true }
+                        .accessibilityIdentifier("habits.createFirst")
+                }
+                .padding(LumoSpace.margin)
             }
-            .padding(LumoSpace.margin)
         } else {
             List {
+                LumoSectionHeading(title: "Build your own rhythm", subtitle: "Choose something meaningful. Small sessions count.")
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 ForEach(habits.habits) { habit in
                     row(habit)
                         .listRowBackground(Color.lumoSoot)
@@ -74,7 +79,7 @@ struct HabitsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(habit.name)
                         .font(.lumoHeadline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.lumoText)
                     Text(
                         habit.isMonetised
                             ? "\(habit.targetMinutes) min target"
@@ -87,7 +92,12 @@ struct HabitsView: View {
             HStack(spacing: LumoSpace.snug) {
                 Button("Start") { habits.start(habit) }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color.lumoEmber)
+                    .tint(Color.lumoAccentFill)
+                    .foregroundStyle(Color.lumoOnAccent)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.lumoFlare, lineWidth: 1)
+                    }
                     .disabled(habits.timer != nil)
                     .accessibilityIdentifier("habits.start.\(habit.id.uuidString)")
                 // Forgetting to press start is not a reason to lose the work. Its absence is a
@@ -99,7 +109,7 @@ struct HabitsView: View {
                 Spacer()
             }
         }
-        .padding(.vertical, LumoSpace.hair)
+        .padding(.vertical, LumoSpace.snug)
         .swipeActions {
             Button("Archive", role: .destructive) { habits.archive(habit) }
         }

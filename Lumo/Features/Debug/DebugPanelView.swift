@@ -154,7 +154,7 @@ struct DebugPanelView: View {
 
     private func row(_ label: String, _ value: String, isBad: Bool = false) -> some View {
         HStack {
-            Text(label).foregroundStyle(.white)
+            Text(label).foregroundStyle(Color.lumoText)
             Spacer()
             Text(value)
                 .font(.callout.monospaced())

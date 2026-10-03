@@ -77,7 +77,7 @@ struct VectorBuddy: BuddyRendering {
         return Circle()
             .fill(
                 RadialGradient(
-                    colors: [.lumoFlare.opacity(glow), .lumoEmber.opacity(glow * 0.75)],
+                    colors: [.lumoAccentFill.opacity(glow), .lumoGlowEmber.opacity(glow * 0.75)],
                     center: .init(x: 0.42, y: 0.36),
                     startRadius: 4,
                     endRadius: 96
@@ -105,16 +105,16 @@ struct VectorBuddy: BuddyRendering {
             switch mood {
             case .sleepy:
                 Capsule()
-                    .fill(Color.lumoInk.opacity(0.75))
+                    .fill(Color.lumoOnAccent.opacity(0.75))
                     .frame(width: 18, height: 4)
             case .delighted:
                 Arc()
-                    .stroke(Color.lumoInk.opacity(0.8), style: .init(lineWidth: 4, lineCap: .round))
+                    .stroke(Color.lumoOnAccent.opacity(0.8), style: .init(lineWidth: 4, lineCap: .round))
                     .frame(width: 18, height: 10)
                     .scaleEffect(x: mirrored ? -1 : 1)
             case .calm, .bright:
                 Circle()
-                    .fill(Color.lumoInk.opacity(0.75))
+                    .fill(Color.lumoOnAccent.opacity(0.75))
                     .frame(width: 9, height: 9)
             }
         }
@@ -140,7 +140,7 @@ struct VectorBuddy: BuddyRendering {
 }
 
 /// A simple upward arc, for the delighted eyes.
-private struct Arc: Shape {
+nonisolated private struct Arc: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.maxY))

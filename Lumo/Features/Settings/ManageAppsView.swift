@@ -85,7 +85,7 @@ struct ManageAppsView: View {
         Section {
             if let committed {
                 HStack {
-                    Text("Locked now").foregroundStyle(.white)
+                    Text("Locked now").foregroundStyle(Color.lumoText)
                     Spacer()
                     Text("\(committed.apps) apps, \(committed.categories) categories")
                         .font(.callout.monospaced())
@@ -93,7 +93,7 @@ struct ManageAppsView: View {
                         .accessibilityIdentifier("manage.lockedCount")
                 }
                 HStack {
-                    Text("Protected now").foregroundStyle(.white)
+                    Text("Protected now").foregroundStyle(Color.lumoText)
                     Spacer()
                     Text("\(committed.essential)")
                         .font(.callout.monospaced())
@@ -107,7 +107,7 @@ struct ManageAppsView: View {
             Text("Saved").foregroundStyle(Color.lumoHaze)
         } footer: {
             Text("iOS keeps your choices private, so Lumo can show how many apps are set but not which ones. Re-picking replaces the list.")
-                .foregroundStyle(Color.lumoHaze.opacity(0.8))
+                .foregroundStyle(Color.lumoHaze)
         }
     }
 
@@ -124,7 +124,7 @@ struct ManageAppsView: View {
             Text("Never lock").foregroundStyle(Color.lumoHaze)
         } footer: {
             Text("Phone, messages, maps, wallet, and any medical app. Lumo can't tell what an app does, so it can't protect these for you automatically.")
-                .foregroundStyle(Color.lumoHaze.opacity(0.8))
+                .foregroundStyle(Color.lumoHaze)
         }
     }
 
@@ -137,7 +137,7 @@ struct ManageAppsView: View {
                 HStack {
                     Text("\(selection.blockedAppCount) of \(selection.appCap)")
                         .font(.callout.monospaced())
-                        .foregroundStyle(selection.isOverCap ? Color.lumoEmber : .white)
+                        .foregroundStyle(selection.isOverCap ? Color.lumoEmber : Color.lumoText)
                     Spacer()
                     if selection.isOverCap {
                         Text("over the limit").font(.footnote).foregroundStyle(Color.lumoEmber)

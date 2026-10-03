@@ -38,7 +38,7 @@ struct EmergencyUnlockView: View {
                         .rotationEffect(.degrees(-90))
                     Text("\(remaining)")
                         .font(.system(size: 44, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.lumoText)
                         .contentTransition(.numericText(countsDown: true))
                 }
                 .frame(width: 148, height: 148)

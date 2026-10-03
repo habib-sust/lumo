@@ -35,13 +35,17 @@ struct SpendSheet: View {
         NavigationStack {
             ZStack {
                 Color.lumoInk.ignoresSafeArea()
-                VStack(alignment: .leading, spacing: LumoSpace.regular) {
-                    balanceLine
-                    tiers
-                    Spacer()
-                    disclosure
+                ScrollView {
+                    VStack(alignment: .leading, spacing: LumoSpace.loose) {
+                        balanceLine
+                            .lumoSurface()
+                        LumoSectionHeading(title: "Choose your time", subtitle: "Spend coins for a short break.")
+                        tiers
+                        Spacer()
+                        disclosure
+                    }
+                    .padding(LumoSpace.margin)
                 }
-                .padding(LumoSpace.margin)
             }
             .navigationTitle("Open for a while")
             .navigationBarTitleDisplayMode(.inline)
@@ -71,7 +75,7 @@ struct SpendSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(snapshot.wallet.total) coins")
                     .font(.lumoTitle)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.lumoText)
                 Text("\(snapshot.wallet.earned) earned, \(snapshot.wallet.granted) allowance")
                     .lumoSecondary()
             }
@@ -90,16 +94,20 @@ struct SpendSheet: View {
                         Text("\(Int(offer.windowSeconds / 60)) minutes")
                             .font(.lumoHeadline)
                         Spacer()
-                        Text("\(offer.price)")
-                            .font(.lumoLedger)
+                        Label("\(offer.price) coins", systemImage: "circle.hexagongrid.fill")
+                            .font(.subheadline.weight(.semibold))
                     }
-                    .foregroundStyle(affordable ? Color.white : Color.lumoHaze)
-                    .padding(.vertical, LumoSpace.snug)
+                    .foregroundStyle(affordable ? Color.lumoText : Color.lumoHaze)
+                    .padding(.vertical, LumoSpace.regular)
                     .padding(.horizontal, LumoSpace.regular)
                     .frame(maxWidth: .infinity)
                     .background(affordable ? Color.lumoSoot : Color.lumoSoot.opacity(0.45))
                     .clipShape(
                         RoundedRectangle(cornerRadius: LumoRadius.control, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LumoRadius.control)
+                            .strokeBorder(Color.lumoHaze.opacity(0.3), lineWidth: 1)
+                    }
                 }
                 .disabled(!affordable || isSpending)
                 .accessibilityIdentifier("spend.tier.\(offer.tierIndex)")

@@ -11,6 +11,7 @@ struct RunningTimerView: View {
     @Environment(HabitService.self) private var habits
     @Environment(\.dismiss) private var dismiss
 
+    @ScaledMetric(relativeTo: .largeTitle) private var timerSize = 64
     @State private var isConfirmingAbandon = false
 
     var body: some View {
@@ -49,35 +50,45 @@ struct RunningTimerView: View {
             let elapsed = timer.activeSeconds(now: context.date)
             let met = timer.hasMetStandard(now: context.date)
 
-            VStack(spacing: LumoSpace.loose) {
-                Spacer()
-                Text(habit.name)
-                    .font(.lumoTitle)
-                    .foregroundStyle(.white)
-
-                Text(Self.clock(elapsed))
-                    .font(.system(size: 64, weight: .medium, design: .monospaced))
-                    .foregroundStyle(met ? Color.lumoMoss : Color.lumoFlare)
-                    .accessibilityIdentifier("timer.elapsed")
-                    .contentTransition(.numericText())
-
-                Text(
-                    met
-                        ? "You've passed your target. Finish whenever you like."
-                        : "\(habit.targetMinutes) min target"
-                )
-                .lumoSecondary()
-
-                if timer.isPaused {
-                    Text("Paused")
-                        .font(.lumoCaption)
+            ScrollView {
+                VStack(spacing: LumoSpace.loose) {
+                    Label(timer.isPaused ? "Session paused" : "Time for yourself", systemImage: timer.isPaused ? "pause.circle" : "leaf")
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(Color.lumoHaze)
-                }
+                        .padding(.top, 32)
+                    Text(habit.name)
+                        .font(.lumoTitle)
+                        .foregroundStyle(Color.lumoText)
 
-                Spacer()
-                controls(timer: timer, met: met)
+                    Text(Self.clock(elapsed))
+                        .font(.system(size: timerSize, weight: .medium, design: .monospaced))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                        .padding(.vertical, 32)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.lumoSoot, in: RoundedRectangle(cornerRadius: 28))
+                        .foregroundStyle(met ? Color.lumoMoss : Color.lumoFlare)
+                        .accessibilityIdentifier("timer.elapsed")
+                        .contentTransition(.numericText())
+
+                    Text(
+                        met
+                            ? "You've passed your target. Finish whenever you like."
+                            : "\(habit.targetMinutes) min target"
+                    )
+                    .lumoSecondary()
+
+                    if timer.isPaused {
+                        Text("Paused")
+                            .font(.lumoCaption)
+                            .foregroundStyle(Color.lumoHaze)
+                    }
+
+                    Spacer()
+                    controls(timer: timer, met: met)
+                }
+                .padding(LumoSpace.margin)
             }
-            .padding(LumoSpace.margin)
         }
     }
 
@@ -133,7 +144,7 @@ struct AwardSheet: View {
 
             Text(award.feedback.headline)
                 .font(.lumoTitle)
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.lumoText)
                 .multilineTextAlignment(.center)
 
             Text(award.feedback.detail)
